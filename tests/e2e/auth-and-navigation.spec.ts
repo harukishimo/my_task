@@ -33,4 +33,23 @@ test.describe("authentication boundary", () => {
     await page.getByRole("button", { name: /ログアウト/ }).first().click();
     await expect(page).toHaveURL(/\/login$/);
   });
+
+  test("collapses and expands the desktop sidebar", async ({ page }) => {
+    test.skip(test.info().project.name === "mobile", "サイドバーはPC幅のみ表示する");
+    await page.goto("/login");
+    await page.getByLabel("パスフレーズ").fill("test-passphrase-long");
+    await page.getByRole("button", { name: "ロックを解除" }).click();
+    await expect(page).toHaveURL(/\/dashboard$/);
+
+    const sidebar = page.locator(".sidebar");
+    const mainContent = page.locator(".main-content");
+    await expect(page.getByRole("button", { name: "サイドバーを格納" })).toHaveAttribute("aria-expanded", "true");
+    await page.getByRole("button", { name: "サイドバーを格納" }).click();
+    await expect(page.getByRole("button", { name: "サイドバーを展開" })).toHaveAttribute("aria-expanded", "false");
+    await expect(sidebar).toHaveCSS("width", "76px");
+    await expect(mainContent).toHaveCSS("margin-left", "76px");
+
+    await page.reload();
+    await expect(page.getByRole("button", { name: "サイドバーを展開" })).toBeVisible();
+  });
 });

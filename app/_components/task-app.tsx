@@ -25,6 +25,7 @@ export default function TaskApp({ view }: { view: View }) {
   const [editing, setEditing] = useState<Task | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
   const [sort, setSort] = useState<"due" | "priority">("due");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const loadTasks = useCallback(async () => {
     setLoading(true);
@@ -47,6 +48,20 @@ export default function TaskApp({ view }: { view: View }) {
   // This effect synchronizes the client view with the protected server API on mount.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void loadTasks(); }, [loadTasks]);
+
+  // The persisted preference is read once after hydration to avoid server/client markup differences.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSidebarCollapsed(window.localStorage.getItem("task-sidebar-collapsed") === "true");
+  }, []);
+
+  function toggleSidebar() {
+    setSidebarCollapsed((current) => {
+      const next = !current;
+      window.localStorage.setItem("task-sidebar-collapsed", String(next));
+      return next;
+    });
+  }
 
   async function saveTask(input: { title: string; comment: string; dueDate: string; isUrgent: boolean; isImportant: boolean }, task?: Task) {
     const response = await fetch(task ? `/api/tasks/${task.id}` : "/api/tasks", {
@@ -103,13 +118,13 @@ export default function TaskApp({ view }: { view: View }) {
   const metrics = useMemo(() => dashboardMetrics(tasks), [tasks]);
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="sidebar-brand"><span className="brand-mark small">W</span><div><strong>わたしの<br />タスク管理</strong><span>ONE PERSON / ONE SYSTEM</span></div></div>
+    <div className={sidebarCollapsed ? "app-shell sidebar-collapsed" : "app-shell"}>
+      <aside className="sidebar" id="task-sidebar">
+        <div className="sidebar-brand"><span className="brand-mark small">W</span><div className="sidebar-brand-copy"><strong>わたしの<br />タスク管理</strong><span>ONE PERSON / ONE SYSTEM</span></div><button className="sidebar-toggle" onClick={toggleSidebar} aria-controls="task-sidebar" aria-expanded={!sidebarCollapsed} aria-label={sidebarCollapsed ? "サイドバーを展開" : "サイドバーを格納"} title={sidebarCollapsed ? "サイドバーを展開" : "サイドバーを格納"}>{sidebarCollapsed ? "→" : "←"}</button></div>
         <nav aria-label="メインナビゲーション">
-          {navItems.map((item) => <Link key={item.href} className={view === item.view ? "nav-link active" : "nav-link"} href={item.href}><span aria-hidden="true">{item.icon}</span>{item.label}</Link>)}
+          {navItems.map((item) => <Link key={item.href} className={view === item.view ? "nav-link active" : "nav-link"} href={item.href}><span className="nav-link-icon" aria-hidden="true">{item.icon}</span><span className="nav-link-label">{item.label}</span></Link>)}
         </nav>
-        <div className="sidebar-bottom"><p>今日もひとつずつ。</p><button className="logout-button" onClick={logout}>↪ ログアウト</button></div>
+        <div className="sidebar-bottom"><p>今日もひとつずつ。</p><button className="logout-button" onClick={logout} aria-label="ログアウト"><span aria-hidden="true">↪</span><span className="logout-label">ログアウト</span></button></div>
       </aside>
       <main className="main-content">
         <header className="mobile-header"><span className="brand-mark small">W</span><strong>わたしのタスク管理</strong><button className="icon-button" onClick={logout} aria-label="ログアウト">↪</button></header>
