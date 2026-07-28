@@ -16,11 +16,13 @@ test.describe("authentication boundary", () => {
     await expect(page).toHaveURL(/\/dashboard$/);
     await page.getByRole("button", { name: /タスクを追加/ }).first().click();
     await page.getByLabel("タスク名").fill(title);
+    await page.getByLabel("コメント").fill("E2Eで追加した補足");
     await page.getByLabel("期日").fill("2026-07-27");
     await page.getByLabel("緊急").check();
     await page.getByLabel("重要").check();
     await page.getByRole("button", { name: "保存する" }).click();
     await expect(page.getByText(title)).toBeVisible();
+    await expect(page.getByText("E2Eで追加した補足")).toBeVisible();
     await page.getByRole("link", { name: "今日まで" }).first().click();
     await expect(page.getByText(title)).toBeVisible();
     await page.getByRole("button", { name: `${title}を完了にする` }).click();

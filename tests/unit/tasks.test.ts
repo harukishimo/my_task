@@ -5,7 +5,7 @@ import { dashboardMetrics, priorityTasks } from "@/lib/tasks/selectors";
 import type { Task } from "@/types/task";
 
 const task = (overrides: Partial<Task> = {}): Task => ({
-  id: crypto.randomUUID(), title: "task", dueDate: "2026-07-27", isUrgent: false, isImportant: false,
+  id: crypto.randomUUID(), title: "task", comment: "", dueDate: "2026-07-27", isUrgent: false, isImportant: false,
   priority: "P4", status: "todo", completedAt: null, isDeleted: false,
   createdAt: "2026-07-20T00:00:00.000Z", updatedAt: "2026-07-20T00:00:00.000Z", version: 1, ...overrides,
 });

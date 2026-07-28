@@ -3,7 +3,7 @@ import "server-only";
 import type { sheets_v4 } from "googleapis";
 import { getServerConfig } from "@/lib/server-config";
 import { getSheetsClient } from "./client";
-import { TASK_HEADERS, inputToTask, rowToTask, taskToRow } from "./mapper";
+import { LEGACY_TASK_HEADERS, TASK_HEADERS, inputToTask, rowToTask, taskToRow } from "./mapper";
 import { TaskConflictError, TaskNotFoundError, RepositoryUnavailableError } from "@/lib/tasks/errors";
 import type { CreateTaskInput, Task, TaskRepository, UpdateTaskInput } from "@/types/task";
 import { calculatePriority } from "@/lib/tasks/priority";
@@ -20,12 +20,14 @@ export class GoogleSheetsTaskRepository implements TaskRepository {
     try {
       const response = await this.sheets.spreadsheets.values.get({
         spreadsheetId: this.config.googleSheetId,
-        range: `${this.config.googleSheetTab}!A:L`,
+        range: `${this.config.googleSheetTab}!A:M`,
         majorDimension: "ROWS",
       });
       const rows = response.data.values ?? [];
       const headers = rows[0] as string[] | undefined;
-      if (headers && TASK_HEADERS.some((header, index) => headers[index] !== header)) {
+      const isCurrentHeaders = headers && TASK_HEADERS.every((header, index) => headers[index] === header);
+      const isLegacyHeaders = headers && LEGACY_TASK_HEADERS.every((header, index) => headers[index] === header);
+      if (headers && !isCurrentHeaders && !isLegacyHeaders) {
         throw new RepositoryUnavailableError("Google Sheets Tasks header is invalid");
       }
       const tasks: Task[] = [];
@@ -54,7 +56,7 @@ export class GoogleSheetsTaskRepository implements TaskRepository {
     try {
       await this.sheets.spreadsheets.values.append({
         spreadsheetId: this.config.googleSheetId,
-        range: `${this.config.googleSheetTab}!A:L`,
+        range: `${this.config.googleSheetTab}!A:M`,
         valueInputOption: "USER_ENTERED",
         insertDataOption: "INSERT_ROWS",
         requestBody: { values: [taskToRow(task)] },
@@ -73,6 +75,7 @@ export class GoogleSheetsTaskRepository implements TaskRepository {
       ...current,
       ...input,
       title: input.title?.trim() ?? current.title,
+      comment: input.comment?.trim() ?? current.comment,
       priority: calculatePriority(input.isUrgent ?? current.isUrgent, input.isImportant ?? current.isImportant),
       completedAt: input.status === "done" ? (current.completedAt ?? new Date().toISOString()) : input.status === "todo" ? null : current.completedAt,
       updatedAt: new Date().toISOString(),
@@ -82,7 +85,7 @@ export class GoogleSheetsTaskRepository implements TaskRepository {
     try {
       await this.sheets.spreadsheets.values.update({
         spreadsheetId: this.config.googleSheetId,
-        range: `${this.config.googleSheetTab}!A${rowNumber}:L${rowNumber}`,
+        range: `${this.config.googleSheetTab}!A${rowNumber}:M${rowNumber}`,
         valueInputOption: "USER_ENTERED",
         requestBody: { values: [taskToRow(next)] },
       });
@@ -99,7 +102,7 @@ export class GoogleSheetsTaskRepository implements TaskRepository {
   private async findRowNumber(id: string): Promise<number> {
     const response = await this.sheets.spreadsheets.values.get({
       spreadsheetId: this.config.googleSheetId,
-      range: `${this.config.googleSheetTab}!A:L`,
+      range: `${this.config.googleSheetTab}!A:M`,
       majorDimension: "ROWS",
     });
     const rows = response.data.values ?? [];
@@ -114,7 +117,7 @@ export async function ensureTaskHeaders(): Promise<void> {
   const sheets = getSheetsClient();
   await sheets.spreadsheets.values.update({
     spreadsheetId: config.googleSheetId,
-    range: `${config.googleSheetTab}!A1:L1`,
+    range: `${config.googleSheetTab}!A1:M1`,
     valueInputOption: "RAW",
     requestBody: { values: [TASK_HEADERS as unknown as string[]] },
   });

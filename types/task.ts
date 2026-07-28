@@ -4,6 +4,7 @@ export type TaskStatus = "todo" | "done";
 export type Task = {
   id: string;
   title: string;
+  comment: string;
   dueDate: string;
   isUrgent: boolean;
   isImportant: boolean;
@@ -18,6 +19,7 @@ export type Task = {
 
 export type CreateTaskInput = {
   title: string;
+  comment?: string;
   dueDate: string;
   isUrgent: boolean;
   isImportant: boolean;

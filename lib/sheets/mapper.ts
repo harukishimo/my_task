@@ -3,8 +3,10 @@ import type { CreateTaskInput, Task } from "@/types/task";
 
 export const TASK_HEADERS = [
   "id", "title", "due_date", "is_urgent", "is_important", "priority",
-  "status", "completed_at", "is_deleted", "created_at", "updated_at", "version",
+  "status", "completed_at", "is_deleted", "created_at", "updated_at", "version", "comment",
 ] as const;
+
+export const LEGACY_TASK_HEADERS = TASK_HEADERS.slice(0, -1);
 
 export function taskToRow(task: Task): string[] {
   return [
@@ -20,14 +22,15 @@ export function taskToRow(task: Task): string[] {
     task.createdAt,
     task.updatedAt,
     String(task.version),
+    task.comment,
   ];
 }
 
 export function rowToTask(row: string[], rowNumber?: number): Task | null {
   if (row.length === 0 || row.every((value) => value.trim() === "")) return null;
   if (row[0] === "id") return null;
-  if (row.length < TASK_HEADERS.length) throw new Error(`INVALID_ROW:${rowNumber ?? "unknown"}`);
-  const [id, title, dueDate, urgent, important, storedPriority, status, completedAt, deleted, createdAt, updatedAt, version] = row;
+  if (row.length < LEGACY_TASK_HEADERS.length) throw new Error(`INVALID_ROW:${rowNumber ?? "unknown"}`);
+  const [id, title, dueDate, urgent, important, storedPriority, status, completedAt, deleted, createdAt, updatedAt, version, comment] = row;
   void storedPriority;
   if (!id || !title || !dueDate || !createdAt || !updatedAt) throw new Error(`INVALID_ROW:${rowNumber ?? "unknown"}`);
   const isUrgent = parseBoolean(urgent);
@@ -38,6 +41,7 @@ export function rowToTask(row: string[], rowNumber?: number): Task | null {
   return {
     id,
     title,
+    comment: comment?.trim() ?? "",
     dueDate,
     isUrgent,
     isImportant,
@@ -56,6 +60,7 @@ export function inputToTask(input: CreateTaskInput, now = new Date(), id = crypt
   return {
     id,
     title: input.title.trim(),
+    comment: input.comment?.trim() ?? "",
     dueDate: input.dueDate,
     isUrgent: input.isUrgent,
     isImportant: input.isImportant,

@@ -5,6 +5,7 @@ const dateSchema = z.string().refine(isValidDateOnly, "実在する日付をYYYY
 
 export const createTaskSchema = z.object({
   title: z.string().trim().min(1, "タスク名を入力してください").max(200, "タスク名は200文字以内です"),
+  comment: z.string().trim().max(2000, "コメントは2000文字以内です").optional().default(""),
   dueDate: dateSchema,
   isUrgent: z.boolean(),
   isImportant: z.boolean(),
@@ -12,6 +13,7 @@ export const createTaskSchema = z.object({
 
 export const updateTaskSchema = z.object({
   title: z.string().trim().min(1).max(200).optional(),
+  comment: z.string().trim().max(2000, "コメントは2000文字以内です").optional(),
   dueDate: dateSchema.optional(),
   isUrgent: z.boolean().optional(),
   isImportant: z.boolean().optional(),

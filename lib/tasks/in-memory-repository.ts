@@ -28,6 +28,7 @@ export class InMemoryTaskRepository implements TaskRepository {
       ...current,
       ...input,
       title: input.title?.trim() ?? current.title,
+      comment: input.comment?.trim() ?? current.comment,
       priority: calculatePriority(input.isUrgent ?? current.isUrgent, input.isImportant ?? current.isImportant),
       completedAt: input.status === "done" ? (current.completedAt ?? new Date().toISOString()) : input.status === "todo" ? null : current.completedAt,
       updatedAt: new Date().toISOString(),
