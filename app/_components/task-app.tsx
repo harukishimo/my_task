@@ -10,6 +10,14 @@ import { overdueDays, todayInTokyo } from "@/lib/tasks/date";
 import LogoMark from "@/app/_components/logo-mark";
 
 type View = "dashboard" | "all" | "due" | "matrix";
+type NewTaskDefaults = Pick<Task, "isUrgent" | "isImportant">;
+
+const PRIORITY_DEFAULTS: Record<Priority, NewTaskDefaults> = {
+  P1: { isUrgent: true, isImportant: true },
+  P2: { isUrgent: false, isImportant: true },
+  P3: { isUrgent: true, isImportant: false },
+  P4: { isUrgent: false, isImportant: false },
+};
 
 const navItems: Array<{ href: string; view: View; label: string; icon: string }> = [
   { href: "/dashboard", view: "dashboard", label: "ダッシュボード", icon: "⌂" },
@@ -24,6 +32,7 @@ export default function TaskApp({ view }: { view: View }) {
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [editing, setEditing] = useState<Task | null>(null);
+  const [newTaskDefaults, setNewTaskDefaults] = useState<NewTaskDefaults>(PRIORITY_DEFAULTS.P4);
   const [showCompleted, setShowCompleted] = useState(false);
   const [sort, setSort] = useState<"due" | "priority">("due");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -62,6 +71,15 @@ export default function TaskApp({ view }: { view: View }) {
       window.localStorage.setItem("task-sidebar-collapsed", String(next));
       return next;
     });
+  }
+
+  function openNewTask(defaults: NewTaskDefaults = PRIORITY_DEFAULTS.P4) {
+    setNewTaskDefaults(defaults);
+    setEditing({} as Task);
+  }
+
+  function openTask(task: Task) {
+    setEditing(task);
   }
 
   async function saveTask(input: { title: string; comment: string; dueDate: string; isUrgent: boolean; isImportant: boolean }, task?: Task) {
@@ -133,13 +151,13 @@ export default function TaskApp({ view }: { view: View }) {
         <header className="mobile-header"><LogoMark small /><strong>わたしのタスク管理</strong><button className="icon-button" onClick={logout} aria-label="ログアウト">↪</button></header>
         {notice && <div className={`notice ${notice.type}`} role="status"><span>{notice.type === "success" ? "✓" : "!"}</span>{notice.text}<button onClick={() => setNotice(null)} aria-label="通知を閉じる">×</button></div>}
         {loading ? <LoadingState /> : <>
-          {view === "dashboard" && <DashboardView tasks={tasks} metrics={metrics} onQuickAdd={() => setEditing({} as Task)} onEdit={setEditing} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} />}
-          {view === "all" && <AllView active={active} completed={completed} showCompleted={showCompleted} setShowCompleted={setShowCompleted} sort={sort} setSort={setSort} onEdit={setEditing} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onRestore={(task) => patchTask(task, { status: "todo" }, "タスクを復元しました。")} onDelete={deleteTask} onAdd={() => setEditing({} as Task)} />}
-          {view === "due" && <DueView tasks={tasks} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onEdit={setEditing} />}
-          {view === "matrix" && <MatrixView tasks={active} onMove={(task, isUrgent, isImportant) => patchTask(task, { isUrgent, isImportant }, "優先度マトリクスを更新しました。")} onEdit={setEditing} onAdd={() => setEditing({} as Task)} />}
+          {view === "dashboard" && <DashboardView tasks={tasks} metrics={metrics} onQuickAdd={openNewTask} onEdit={openTask} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} />}
+          {view === "all" && <AllView active={active} completed={completed} showCompleted={showCompleted} setShowCompleted={setShowCompleted} sort={sort} setSort={setSort} onEdit={openTask} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onRestore={(task) => patchTask(task, { status: "todo" }, "タスクを復元しました。")} onDelete={deleteTask} onAdd={openNewTask} />}
+          {view === "due" && <DueView tasks={tasks} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onEdit={openTask} />}
+          {view === "matrix" && <MatrixView tasks={active} onMove={(task, isUrgent, isImportant) => patchTask(task, { isUrgent, isImportant }, "優先度マトリクスを更新しました。")} onEdit={openTask} onAdd={(priority) => openNewTask(PRIORITY_DEFAULTS[priority])} />}
         </>}
       </main>
-      {editing && <TaskModal task={editing.id ? editing : undefined} onClose={() => setEditing(null)} onSave={saveTask} onComplete={editing.id ? (task) => patchTask(task, { status: task.status === "done" ? "todo" : "done" }, task.status === "done" ? "タスクを未完了に戻しました。" : "タスクを完了しました。") : undefined} />}
+      {editing && <TaskModal task={editing.id ? editing : undefined} initialValues={editing.id ? undefined : newTaskDefaults} onClose={() => setEditing(null)} onSave={saveTask} onComplete={editing.id ? (task) => patchTask(task, { status: task.status === "done" ? "todo" : "done" }, task.status === "done" ? "タスクを未完了に戻しました。" : "タスクを完了しました。") : undefined} />}
       <nav className="mobile-nav" aria-label="モバイルナビゲーション">{navItems.map((item) => <Link key={item.href} className={view === item.view ? "mobile-nav-link active" : "mobile-nav-link"} href={item.href}><span aria-hidden="true">{item.icon}</span><small>{item.label}</small></Link>)}</nav>
     </div>
   );
@@ -175,7 +193,7 @@ function DueView({ tasks, onComplete, onEdit }: { tasks: Task[]; onComplete: (ta
 
 function DueSection({ title, subtitle, tasks, onComplete, onEdit }: { title: string; subtitle: string; tasks: Task[]; onComplete: (task: Task) => void; onEdit: (task: Task) => void }) { return <section className="panel due-section"><div className="panel-header"><div><h2>{title}</h2><p className="muted">{subtitle}</p></div><span className="count-pill">{tasks.length}件</span></div><TaskList tasks={tasks} onEdit={onEdit} onComplete={onComplete} showOverdue /></section>; }
 
-function MatrixView({ tasks, onMove, onEdit, onAdd }: { tasks: Task[]; onMove: (task: Task, isUrgent: boolean, isImportant: boolean) => void; onEdit: (task: Task) => void; onAdd: () => void }) {
+function MatrixView({ tasks, onMove, onEdit, onAdd }: { tasks: Task[]; onMove: (task: Task, isUrgent: boolean, isImportant: boolean) => void; onEdit: (task: Task) => void; onAdd: (priority: Priority) => void }) {
   const quadrants: Array<{ priority: Priority; urgent: boolean; important: boolean; label: string; sub: string }> = [
     { priority: "P1", urgent: true, important: true, label: "今すぐやる", sub: "緊急 × 重要" },
     { priority: "P2", urgent: false, important: true, label: "予定する", sub: "非緊急 × 重要" },
@@ -183,19 +201,19 @@ function MatrixView({ tasks, onMove, onEdit, onAdd }: { tasks: Task[]; onMove: (
     { priority: "P4", urgent: false, important: false, label: "あとで", sub: "非緊急 × 非重要" },
   ];
   const [dragging, setDragging] = useState<string | null>(null);
-  return <div className="content-wrap"><PageHeading eyebrow="URGENT / IMPORTANT" title="優先度マトリクス" description="タスクを置く場所で、次の一手を決める。" action={<button className="primary-button" onClick={onAdd}>＋ タスクを追加</button>} /><div className="matrix-legend"><span>緊急度 <b>高 ↑</b></span><span>重要度 <b>高 →</b></span></div><div className="matrix-grid">{quadrants.map((quadrant) => { const items = tasks.filter((task) => task.priority === quadrant.priority); return <section key={quadrant.priority} className={`quadrant quadrant-${quadrant.priority.toLowerCase()}`} onDragOver={(event) => event.preventDefault()} onDrop={() => { const task = tasks.find((item) => item.id === dragging); if (task) onMove(task, quadrant.urgent, quadrant.important); setDragging(null); }}><div className="quadrant-heading"><div><span className="priority-badge">{quadrant.priority}</span><h2>{quadrant.label}</h2><p>{quadrant.sub}</p></div><strong>{items.length}</strong></div>{items.length === 0 ? <p className="quadrant-empty">ここにタスクを置く</p> : <div className="quadrant-tasks">{items.map((task) => <article className="matrix-task" draggable onDragStart={() => setDragging(task.id)} onDragEnd={() => setDragging(null)} key={task.id}><button type="button" className="matrix-task-content" onClick={() => onEdit(task)} aria-label={`${task.title}の詳細を開く`}><strong>{task.title}</strong><span>{task.dueDate}</span>{task.comment && <span className="matrix-task-comment">{task.comment}</span>}</button><div className="matrix-actions"><select aria-label={`${task.title}の移動先`} value={task.priority} onChange={(event) => { const target = quadrants.find((item) => item.priority === event.target.value); if (target) onMove(task, target.urgent, target.important); }}><option value="P1">P1 今すぐやる</option><option value="P2">P2 予定する</option><option value="P3">P3 手早くやる</option><option value="P4">P4 あとで</option></select><button className="icon-button" onClick={() => onEdit(task)} aria-label={`${task.title}を編集`}>✎</button></div></article>)}</div>}</section>; })}</div><p className="matrix-hint">PCではタスクをドラッグ、タッチ端末では「移動先」メニューから象限を変更できます。</p></div>;
+  return <div className="content-wrap"><PageHeading eyebrow="URGENT / IMPORTANT" title="優先度マトリクス" description="タスクを置く場所で、次の一手を決める。" /><div className="matrix-legend"><span>緊急度 <b>高 ↑</b></span><span>重要度 <b>高 →</b></span></div><div className="matrix-grid">{quadrants.map((quadrant) => { const items = tasks.filter((task) => task.priority === quadrant.priority); return <section key={quadrant.priority} className={`quadrant quadrant-${quadrant.priority.toLowerCase()}`} onDragOver={(event) => event.preventDefault()} onDrop={() => { const task = tasks.find((item) => item.id === dragging); if (task) onMove(task, quadrant.urgent, quadrant.important); setDragging(null); }}><div className="quadrant-heading"><div><span className="priority-badge">{quadrant.priority}</span><h2>{quadrant.label}</h2><p>{quadrant.sub}</p></div><div className="quadrant-heading-actions"><button type="button" className="quadrant-add-button" onClick={() => onAdd(quadrant.priority)} aria-label={`${quadrant.priority}にタスクを追加`}>＋ 追加</button><strong>{items.length}</strong></div></div>{items.length === 0 ? <p className="quadrant-empty">ここにタスクを置く</p> : <div className="quadrant-tasks">{items.map((task) => <article className="matrix-task" draggable onDragStart={() => setDragging(task.id)} onDragEnd={() => setDragging(null)} key={task.id}><button type="button" className="matrix-task-content" onClick={() => onEdit(task)} aria-label={`${task.title}の詳細を開く`}><strong>{task.title}</strong><span>{task.dueDate}</span>{task.comment && <span className="matrix-task-comment">{task.comment}</span>}</button><div className="matrix-actions"><select aria-label={`${task.title}の移動先`} value={task.priority} onChange={(event) => { const target = quadrants.find((item) => item.priority === event.target.value); if (target) onMove(task, target.urgent, target.important); }}><option value="P1">P1 今すぐやる</option><option value="P2">P2 予定する</option><option value="P3">P3 手早くやる</option><option value="P4">P4 あとで</option></select><button className="icon-button" onClick={() => onEdit(task)} aria-label={`${task.title}を編集`}>✎</button></div></article>)}</div>}</section>; })}</div><p className="matrix-hint">PCではタスクをドラッグ、タッチ端末では「移動先」メニューから象限を変更できます。</p></div>;
 }
 
 function TaskList({ tasks, onEdit, onComplete, onRestore, onDelete, showCompleted = false, showOverdue = false }: { tasks: Task[]; onEdit: (task: Task) => void; onComplete?: (task: Task) => void; onRestore?: (task: Task) => void; onDelete?: (task: Task) => void; showCompleted?: boolean; showOverdue?: boolean }) { return <div className="task-list">{tasks.map((task) => <article className={task.status === "done" ? "task-row completed" : "task-row"} key={task.id}><button className="check-button" onClick={() => task.status === "done" ? onRestore?.(task) : onComplete?.(task)} aria-label={task.status === "done" ? `${task.title}を未完了に戻す` : `${task.title}を完了にする`}>{task.status === "done" ? "↶" : "○"}</button><button type="button" className="task-main task-open-button" onClick={() => onEdit(task)} aria-label={`${task.title}の詳細を開く`}><strong>{task.title}</strong>{task.comment && <span className="task-comment">{task.comment}</span>}<span className="task-meta"><span className={`priority-text ${task.priority.toLowerCase()}`}>{task.priority}・{PRIORITY_LABELS[task.priority]}</span><span className={showOverdue && overdueDays(task.dueDate) > 0 ? "overdue-text" : ""}>{task.dueDate}{showOverdue && overdueDays(task.dueDate) > 0 ? `（${overdueDays(task.dueDate)}日超過）` : ""}</span>{task.status === "done" && <span>完了済み</span>}</span></button><div className="task-actions"><button className="icon-button" onClick={() => onEdit(task)} aria-label={`${task.title}を編集`}>✎</button>{showCompleted && task.status === "done" && onRestore && <button className="restore-button" onClick={() => onRestore(task)}>復元</button>}{onDelete && task.status !== "done" && <button className="icon-button danger" onClick={() => onDelete(task)} aria-label={`${task.title}を削除`}>⌫</button>}</div></article>)}</div>; }
 
 function EmptyState({ text }: { text: string }) { return <div className="empty-state"><span aria-hidden="true">✦</span><p>{text}</p></div>; }
 
-function TaskModal({ task, onClose, onSave, onComplete }: { task?: Task; onClose: () => void; onSave: (input: { title: string; comment: string; dueDate: string; isUrgent: boolean; isImportant: boolean }, task?: Task) => Promise<void>; onComplete?: (task: Task) => Promise<boolean> }) {
+function TaskModal({ task, initialValues, onClose, onSave, onComplete }: { task?: Task; initialValues?: NewTaskDefaults; onClose: () => void; onSave: (input: { title: string; comment: string; dueDate: string; isUrgent: boolean; isImportant: boolean }, task?: Task) => Promise<void>; onComplete?: (task: Task) => Promise<boolean> }) {
   const [title, setTitle] = useState(task?.title ?? "");
   const [comment, setComment] = useState(task?.comment ?? "");
   const [dueDate, setDueDate] = useState(task?.dueDate ?? todayInTokyo());
-  const [isUrgent, setIsUrgent] = useState(task?.isUrgent ?? false);
-  const [isImportant, setIsImportant] = useState(task?.isImportant ?? false);
+  const [isUrgent, setIsUrgent] = useState(task?.isUrgent ?? initialValues?.isUrgent ?? false);
+  const [isImportant, setIsImportant] = useState(task?.isImportant ?? initialValues?.isImportant ?? false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [completing, setCompleting] = useState(false);

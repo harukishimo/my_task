@@ -102,6 +102,10 @@ a { color: inherit; text-decoration: none; }
 .modal-actions { align-items: center; }
 .keyboard-hint { color: var(--muted); font-size: 10px; white-space: nowrap; }
 .modal-backdrop { z-index: 70; }
+.quadrant-heading-actions { display: grid; justify-items: end; gap: 9px; }
+.quadrant-heading-actions > strong { font: 600 28px Georgia, serif; color: var(--muted); }
+.quadrant-add-button { border: 1px solid var(--line-strong); border-radius: 7px; padding: 6px 9px; color: var(--teal); background: white; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.quadrant-add-button:hover { border-color: var(--teal); background: var(--mint); }
 @media (max-width: 680px) {
   .modal-actions { display: grid; grid-template-columns: 1fr 1fr; }
   .complete-button { width: 100%; margin-right: 0; grid-column: 1 / -1; }
