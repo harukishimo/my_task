@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { Priority, Task } from "@/types/task";
 import { calculatePriority, PRIORITY_LABELS } from "@/lib/tasks/priority";
 import { dashboardMetrics, dueDateSort, prioritySort, priorityTasks } from "@/lib/tasks/selectors";
 import { overdueDays, todayInTokyo } from "@/lib/tasks/date";
+import LogoMark from "@/app/_components/logo-mark";
 
 type View = "dashboard" | "all" | "due" | "matrix";
 
@@ -122,14 +123,14 @@ export default function TaskApp({ view }: { view: View }) {
   return (
     <div className={sidebarCollapsed ? "app-shell sidebar-collapsed" : "app-shell"}>
       <aside className="sidebar" id="task-sidebar">
-        <div className="sidebar-brand"><span className="brand-mark small">W</span><div className="sidebar-brand-copy"><strong>わたしの<br />タスク管理</strong><span>ONE PERSON / ONE SYSTEM</span></div><button className="sidebar-toggle" onClick={toggleSidebar} aria-controls="task-sidebar" aria-expanded={!sidebarCollapsed} aria-label={sidebarCollapsed ? "サイドバーを展開" : "サイドバーを格納"} title={sidebarCollapsed ? "サイドバーを展開" : "サイドバーを格納"}>{sidebarCollapsed ? "→" : "←"}</button></div>
+        <div className="sidebar-brand"><LogoMark small /><div className="sidebar-brand-copy"><strong>わたしの<br />タスク管理</strong><span>ONE PERSON / ONE SYSTEM</span></div><button className="sidebar-toggle" onClick={toggleSidebar} aria-controls="task-sidebar" aria-expanded={!sidebarCollapsed} aria-label={sidebarCollapsed ? "サイドバーを展開" : "サイドバーを格納"} title={sidebarCollapsed ? "サイドバーを展開" : "サイドバーを格納"}>{sidebarCollapsed ? "→" : "←"}</button></div>
         <nav aria-label="メインナビゲーション">
           {navItems.map((item) => <Link key={item.href} className={view === item.view ? "nav-link active" : "nav-link"} href={item.href}><span className="nav-link-icon" aria-hidden="true">{item.icon}</span><span className="nav-link-label">{item.label}</span></Link>)}
         </nav>
         <div className="sidebar-bottom"><p>今日もひとつずつ。</p><button className="logout-button" onClick={logout} aria-label="ログアウト"><span aria-hidden="true">↪</span><span className="logout-label">ログアウト</span></button></div>
       </aside>
       <main className="main-content">
-        <header className="mobile-header"><span className="brand-mark small">W</span><strong>わたしのタスク管理</strong><button className="icon-button" onClick={logout} aria-label="ログアウト">↪</button></header>
+        <header className="mobile-header"><LogoMark small /><strong>わたしのタスク管理</strong><button className="icon-button" onClick={logout} aria-label="ログアウト">↪</button></header>
         {notice && <div className={`notice ${notice.type}`} role="status"><span>{notice.type === "success" ? "✓" : "!"}</span>{notice.text}<button onClick={() => setNotice(null)} aria-label="通知を閉じる">×</button></div>}
         {loading ? <LoadingState /> : <>
           {view === "dashboard" && <DashboardView tasks={tasks} metrics={metrics} onQuickAdd={() => setEditing({} as Task)} onEdit={setEditing} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} />}
@@ -198,8 +199,63 @@ function TaskModal({ task, onClose, onSave, onComplete }: { task?: Task; onClose
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [completing, setCompleting] = useState(false);
-  async function submit(event: FormEvent) { event.preventDefault(); setError(""); setSaving(true); try { await onSave({ title, comment, dueDate, isUrgent, isImportant }, task); } catch (e) { setError(e instanceof Error ? e.message : "保存できませんでした。"); } finally { setSaving(false); } }
-  async function toggleComplete() { if (!task || !onComplete) return; setCompleting(true); const succeeded = await onComplete(task); if (succeeded) onClose(); else setCompleting(false); }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    setSaving(true);
+    try {
+      await onSave({ title, comment, dueDate, isUrgent, isImportant }, task);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "保存できませんでした。");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLFormElement>) {
+    if (event.key !== "Enter" || (!event.metaKey && !event.ctrlKey) || event.nativeEvent.isComposing || saving || completing) return;
+    event.preventDefault();
+    event.currentTarget.requestSubmit();
+  }
+
+  async function toggleComplete() {
+    if (!task || !onComplete) return;
+    setCompleting(true);
+    const succeeded = await onComplete(task);
+    if (succeeded) onClose();
+    else setCompleting(false);
+  }
+
   const priority = calculatePriority(isUrgent, isImportant);
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="task-modal-title"><div className="modal-header"><div><p className="eyebrow">{task ? "EDIT TASK" : "NEW TASK"}</p><h2 id="task-modal-title">{task ? "タスクを編集" : "新しいタスク"}</h2></div><button className="icon-button" onClick={onClose} aria-label="閉じる">×</button></div><form onSubmit={submit}><label htmlFor="task-title">タスク名</label><input id="task-title" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={200} required autoFocus /><label htmlFor="task-comment">コメント</label><textarea id="task-comment" value={comment} onChange={(event) => setComment(event.target.value)} maxLength={2000} rows={4} placeholder="補足、次にやること、参考情報など" /><label htmlFor="task-due">期日 <span className="required">必須</span></label><input id="task-due" type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /><div className="boolean-grid"><label className="boolean-option"><input type="checkbox" checked={isUrgent} onChange={(event) => setIsUrgent(event.target.checked)} /><span><b>緊急</b><small>今日の判断が必要</small></span></label><label className="boolean-option"><input type="checkbox" checked={isImportant} onChange={(event) => setIsImportant(event.target.checked)} /><span><b>重要</b><small>目的への影響が大きい</small></span></label></div><div className={`priority-preview ${priority.toLowerCase()}`}><span className="priority-badge">{priority}</span><div><b>{PRIORITY_LABELS[priority]}</b><small>緊急度と重要度から自動算出</small></div></div>{error && <p className="field-error" role="alert">{error}</p>}<div className="modal-actions">{task && onComplete && <button type="button" className="complete-button" onClick={toggleComplete} disabled={saving || completing}>{completing ? "更新中…" : task.status === "done" ? "未完了に戻す" : "完了にする"}</button>}<button type="button" className="secondary-button" onClick={onClose} disabled={completing}>キャンセル</button><button type="submit" className="primary-button" disabled={saving || completing}>{saving ? "保存中…" : "保存する"}</button></div></form></section></div>;
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}>
+      <section className="modal" role="dialog" aria-modal="true" aria-labelledby="task-modal-title">
+        <div className="modal-header">
+          <div><p className="eyebrow">{task ? "EDIT TASK" : "NEW TASK"}</p><h2 id="task-modal-title">{task ? "タスクを編集" : "新しいタスク"}</h2></div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="閉じる">×</button>
+        </div>
+        <form onSubmit={submit} onKeyDown={handleKeyDown}>
+          <label htmlFor="task-title">タスク名</label>
+          <input id="task-title" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={200} required autoFocus />
+          <label htmlFor="task-comment">コメント</label>
+          <textarea id="task-comment" value={comment} onChange={(event) => setComment(event.target.value)} maxLength={2000} rows={4} placeholder="補足、次にやること、参考情報など" />
+          <label htmlFor="task-due">期日 <span className="required">必須</span></label>
+          <input id="task-due" type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} required />
+          <div className="boolean-grid">
+            <label className="boolean-option"><input type="checkbox" checked={isUrgent} onChange={(event) => setIsUrgent(event.target.checked)} /><span><b>緊急</b><small>今日の判断が必要</small></span></label>
+            <label className="boolean-option"><input type="checkbox" checked={isImportant} onChange={(event) => setIsImportant(event.target.checked)} /><span><b>重要</b><small>目的への影響が大きい</small></span></label>
+          </div>
+          <div className={`priority-preview ${priority.toLowerCase()}`}><span className="priority-badge">{priority}</span><div><b>{PRIORITY_LABELS[priority]}</b><small>緊急度と重要度から自動算出</small></div></div>
+          {error && <p className="field-error" role="alert">{error}</p>}
+          <div className="modal-actions">
+            {task && onComplete && <button type="button" className="complete-button" onClick={toggleComplete} disabled={saving || completing}>{completing ? "更新中…" : task.status === "done" ? "未完了に戻す" : "完了にする"}</button>}
+            <span className="keyboard-hint">⌘ / Ctrl + Enter で保存</span>
+            <button type="button" className="secondary-button" onClick={onClose} disabled={completing}>キャンセル</button>
+            <button type="submit" className="primary-button" disabled={saving || completing}>{saving ? "保存中…" : "保存する"}</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
 }

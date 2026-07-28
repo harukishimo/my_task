@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
+import LogoMark from "@/app/_components/logo-mark";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -36,7 +37,7 @@ export default function LoginPage() {
   return (
     <main className="login-page">
       <section className="login-card" aria-labelledby="login-title">
-        <div className="brand-mark" aria-hidden="true">W</div>
+        <LogoMark />
         <p className="eyebrow">PERSONAL TASK SYSTEM</p>
         <h1 id="login-title">わたしのタスク管理</h1>
         <p className="login-description">今日やることを、今日の自分にわかる形で。</p>

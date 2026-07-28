@@ -51,6 +51,11 @@ test.describe("authentication boundary", () => {
     await page.getByRole("button", { name: `${title}の詳細を開く` }).click();
     await expect(page.getByRole("heading", { name: "タスクを編集" })).toBeVisible();
     await expect(page.getByLabel("タスク名")).toHaveValue(title);
+    await page.getByLabel("コメント").fill("ショートカットで保存したコメント");
+    await page.getByLabel("コメント").press("ControlOrMeta+Enter");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.locator(".task-comment").filter({ hasText: "ショートカットで保存したコメント" })).toBeVisible();
+    await page.getByRole("button", { name: `${title}の詳細を開く` }).click();
     await page.getByRole("dialog").getByRole("button", { name: "完了にする", exact: true }).click();
     await expect(page.getByText(title)).toHaveCount(0);
   });
