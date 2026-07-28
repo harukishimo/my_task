@@ -22,16 +22,37 @@ test.describe("authentication boundary", () => {
     await page.getByLabel("重要").check();
     await page.getByRole("button", { name: "保存する" }).click();
     await expect(page.getByText(title)).toBeVisible();
-    await expect(page.getByText("E2Eで追加した補足")).toBeVisible();
+    await expect(
+      page.locator(".task-comment").filter({ hasText: "E2Eで追加した補足" }).first(),
+    ).toBeVisible();
     await page.getByRole("link", { name: "今日まで" }).first().click();
     await expect(page.getByText(title)).toBeVisible();
     await page.getByRole("button", { name: `${title}を完了にする` }).click();
+    await expect(page.getByRole("status").filter({ hasText: "タスクを完了しました。" })).toBeVisible();
     await expect(page.getByText(title)).toHaveCount(0);
     await page.getByRole("link", { name: "TODO ALL" }).first().click();
     await page.getByLabel("完了済みを表示").check();
     await expect(page.getByText(title)).toBeVisible();
     await page.getByRole("button", { name: /ログアウト/ }).first().click();
     await expect(page).toHaveURL(/\/login$/);
+  });
+
+  test("opens task details and completes from the edit modal", async ({ page }) => {
+    const title = `Modal task ${test.info().project.name} ${randomUUID()}`;
+    await page.goto("/login");
+    await page.getByLabel("パスフレーズ").fill("test-passphrase-long");
+    await page.getByRole("button", { name: "ロックを解除" }).click();
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await page.getByRole("button", { name: /タスクを追加/ }).first().click();
+    await page.getByLabel("タスク名").fill(title);
+    await page.getByLabel("期日").fill("2026-07-31");
+    await page.getByRole("button", { name: "保存する" }).click();
+
+    await page.getByRole("button", { name: `${title}の詳細を開く` }).click();
+    await expect(page.getByRole("heading", { name: "タスクを編集" })).toBeVisible();
+    await expect(page.getByLabel("タスク名")).toHaveValue(title);
+    await page.getByRole("dialog").getByRole("button", { name: "完了にする", exact: true }).click();
+    await expect(page.getByText(title)).toHaveCount(0);
   });
 
   test("collapses and expands the desktop sidebar", async ({ page }) => {

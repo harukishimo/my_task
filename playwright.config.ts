@@ -2,6 +2,8 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  // The E2E web server uses one in-memory task repository shared by both projects.
+  workers: 1,
   fullyParallel: true,
   reporter: "list",
   use: { baseURL: "http://localhost:3102", trace: "retain-on-failure" },
