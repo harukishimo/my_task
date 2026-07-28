@@ -103,6 +103,8 @@ a { color: inherit; text-decoration: none; }
 .keyboard-hint { color: var(--muted); font-size: 10px; white-space: nowrap; }
 .modal-backdrop { z-index: 70; }
 @media (max-width: 680px) {
-  .modal-actions { flex-wrap: wrap; }
-  .keyboard-hint { order: 4; width: 100%; text-align: right; }
+  .modal-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .complete-button { width: 100%; margin-right: 0; grid-column: 1 / -1; }
+  .keyboard-hint { width: 100%; grid-column: 1 / -1; text-align: left; }
+  .modal-actions .secondary-button, .modal-actions .primary-button { width: 100%; }
 }

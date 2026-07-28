@@ -58,6 +58,11 @@ test.describe("authentication boundary", () => {
     await page.getByRole("button", { name: `${title}の詳細を開く` }).click();
     await page.getByRole("dialog").getByRole("button", { name: "完了にする", exact: true }).click();
     await expect(page.getByText(title)).toHaveCount(0);
+    await page.getByRole("link", { name: "マトリクス" }).first().click();
+    await expect(page.getByRole("heading", { name: "優先度マトリクス" })).toBeVisible();
+    await page.getByRole("button", { name: "＋ タスクを追加" }).click();
+    await expect(page.getByRole("heading", { name: "新しいタスク" })).toBeVisible();
+    await page.getByRole("button", { name: "キャンセル" }).click();
   });
 
   test("collapses and expands the desktop sidebar", async ({ page }) => {
