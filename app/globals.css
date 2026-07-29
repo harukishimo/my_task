@@ -106,7 +106,9 @@ a { color: inherit; text-decoration: none; }
 .quadrant-heading-actions > strong { font: 600 28px Georgia, serif; color: var(--muted); }
 .quadrant-add-button { border: 1px solid var(--line-strong); border-radius: 7px; padding: 6px 9px; color: var(--teal); background: white; font-size: 10px; font-weight: 700; white-space: nowrap; }
 .quadrant-add-button:hover { border-color: var(--teal); background: var(--mint); }
+.matrix-task-content strong, .matrix-task-comment { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 680px) {
+  .matrix-grid { grid-template-areas: "p1" "p3" "p2" "p4"; }
   .modal-actions { display: grid; grid-template-columns: 1fr 1fr; }
   .complete-button { width: 100%; margin-right: 0; grid-column: 1 / -1; }
   .keyboard-hint { width: 100%; grid-column: 1 / -1; text-align: left; }
