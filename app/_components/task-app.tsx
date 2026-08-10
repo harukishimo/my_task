@@ -396,7 +396,7 @@ function MatrixView({ tasks, onMove, onEdit, onAdd }: { tasks: Task[]; onMove: (
 
   return (
     <div className="content-wrap">
-      <PageHeading eyebrow="URGENT / IMPORTANT" title="優先度マトリクス" description="タスクを置く場所で、次の一手を決める。" />
+      <PageHeading eyebrow="URGENT / IMPORTANT" title="優先度マトリクス" description="タスクを置く場所で、次の一手を決める。" action={<button className="primary-button" onClick={() => onAdd("P4")}>＋ タスクを追加</button>} />
       <div className="matrix-legend"><span>緊急度 <b>高 ↑</b></span><span>重要度 <b>高 →</b></span></div>
       <div className="matrix-grid">
         {quadrants.map((quadrant) => {
