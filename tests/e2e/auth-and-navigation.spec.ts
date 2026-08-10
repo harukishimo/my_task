@@ -60,11 +60,6 @@ test.describe("authentication boundary", () => {
     await expect(page.getByText(title)).toHaveCount(0);
     await page.getByRole("link", { name: "マトリクス" }).first().click();
     await expect(page.getByRole("heading", { name: "優先度マトリクス" })).toBeVisible();
-    await page.getByRole("button", { name: "＋ タスクを追加" }).click();
-    await expect(page.getByRole("heading", { name: "新しいタスク" })).toBeVisible();
-    await expect(page.getByLabel("緊急")).not.toBeChecked();
-    await expect(page.getByLabel("重要")).not.toBeChecked();
-    await page.getByRole("button", { name: "キャンセル" }).click();
     for (const [priority, urgent, important] of [["P1", true, true], ["P2", false, true], ["P3", true, false], ["P4", false, false]] as const) {
       await page.getByRole("button", { name: `${priority}にタスクを追加` }).click();
       await expect(page.getByRole("heading", { name: "新しいタスク" })).toBeVisible();
@@ -94,6 +89,11 @@ test.describe("authentication boundary", () => {
     await page.getByRole("link", { name: "今日の段取り" }).first().click();
     await expect(page).toHaveURL(/\/plan$/);
     await expect(page.getByRole("heading", { name: "今日の段取り" })).toBeVisible();
+    await page.getByRole("button", { name: "＋ タスクを追加" }).click();
+    await expect(page.getByRole("heading", { name: "新しいタスク" })).toBeVisible();
+    await expect(page.getByLabel("緊急")).not.toBeChecked();
+    await expect(page.getByLabel("重要")).not.toBeChecked();
+    await page.getByRole("button", { name: "キャンセル" }).click();
     const planDropzone = page.locator("#today-plan-dropzone");
 
     for (const title of [firstTitle, secondTitle]) {

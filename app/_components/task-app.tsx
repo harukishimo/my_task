@@ -191,7 +191,7 @@ export default function TaskApp({ view }: { view: View }) {
           {view === "all" && <AllView active={active} completed={completed} showCompleted={showCompleted} setShowCompleted={setShowCompleted} sort={sort} setSort={setSort} onEdit={openTask} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onRestore={(task) => patchTask(task, { status: "todo" }, "タスクを復元しました。")} onDelete={deleteTask} onAdd={openNewTask} />}
           {view === "due" && <DueView tasks={tasks} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onEdit={openTask} />}
           {view === "matrix" && <MatrixView tasks={active} onMove={(task, isUrgent, isImportant) => patchTask(task, { isUrgent, isImportant }, "優先度マトリクスを更新しました。")} onEdit={openTask} onAdd={(priority) => openNewTask(PRIORITY_DEFAULTS[priority])} />}
-          {view === "plan" && <PlanningView tasks={tasks} onEdit={openTask} onPlanChange={savePlan} />}
+          {view === "plan" && <PlanningView tasks={tasks} onEdit={openTask} onPlanChange={savePlan} onAdd={() => openNewTask(PRIORITY_DEFAULTS.P4)} />}
         </>}
       </main>
       {editing && <TaskModal task={editing.id ? editing : undefined} initialValues={editing.id ? undefined : newTaskDefaults} onClose={() => setEditing(null)} onSave={saveTask} onComplete={editing.id ? (task) => patchTask(task, { status: task.status === "done" ? "todo" : "done" }, task.status === "done" ? "タスクを未完了に戻しました。" : "タスクを完了しました。") : undefined} />}
@@ -238,7 +238,7 @@ function planCollisionDetection(args: Parameters<typeof pointerWithin>[0]) {
   return pointerCollisions.length > 0 ? pointerCollisions : closestCenter(args);
 }
 
-function PlanningView({ tasks, onEdit, onPlanChange }: { tasks: Task[]; onEdit: (task: Task) => void; onPlanChange: (orderedTasks: Task[], removedTask?: Task) => Promise<void> }) {
+function PlanningView({ tasks, onEdit, onPlanChange, onAdd }: { tasks: Task[]; onEdit: (task: Task) => void; onPlanChange: (orderedTasks: Task[], removedTask?: Task) => Promise<void>; onAdd: () => void }) {
   const today = todayInTokyo();
   const activeTasks = tasks.filter((task) => !task.isDeleted && task.status === "todo");
   const initialPlannedIds = activeTasks
@@ -314,7 +314,7 @@ function PlanningView({ tasks, onEdit, onPlanChange }: { tasks: Task[]; onEdit: 
 
   return (
     <div className="content-wrap planning-page">
-      <PageHeading eyebrow="TODAY / PLAN" title="今日の段取り" description={`${planned.length}件の実行順を決める。`} />
+      <PageHeading eyebrow="TODAY / PLAN" title="今日の段取り" description={`${planned.length}件の実行順を決める。`} action={<button className="primary-button" onClick={onAdd}>＋ タスクを追加</button>} />
       <DndContext sensors={sensors} collisionDetection={planCollisionDetection} onDragStart={({ active }) => setDraggingId(String(active.id))} onDragCancel={() => setDraggingId(null)} onDragEnd={handleDragEnd}>
         <PlanningDropzones
           unplanned={unplanned}
@@ -396,7 +396,7 @@ function MatrixView({ tasks, onMove, onEdit, onAdd }: { tasks: Task[]; onMove: (
 
   return (
     <div className="content-wrap">
-      <PageHeading eyebrow="URGENT / IMPORTANT" title="優先度マトリクス" description="タスクを置く場所で、次の一手を決める。" action={<button className="primary-button" onClick={() => onAdd("P4")}>＋ タスクを追加</button>} />
+      <PageHeading eyebrow="URGENT / IMPORTANT" title="優先度マトリクス" description="タスクを置く場所で、次の一手を決める。" />
       <div className="matrix-legend"><span>緊急度 <b>高 ↑</b></span><span>重要度 <b>高 →</b></span></div>
       <div className="matrix-grid">
         {quadrants.map((quadrant) => {
