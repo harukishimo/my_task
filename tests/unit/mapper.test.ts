@@ -10,6 +10,11 @@ describe("Google Sheets mapper", () => {
     expect(mapped?.priority).toBe("P1");
     expect(mapped?.version).toBe(1);
   });
+  it("round-trips today's execution plan fields", () => {
+    const task = inputToTask({ title: "段取り", dueDate: "2026-08-10", isUrgent: false, isImportant: true }, new Date("2026-08-10T00:00:00.000Z"), "id-plan");
+    const planned = { ...task, planDate: "2026-08-10", planOrder: 2 };
+    expect(rowToTask(taskToRow(planned))).toMatchObject({ planDate: "2026-08-10", planOrder: 2 });
+  });
   it("keeps legacy rows valid with an empty comment", () => {
     const task = inputToTask({ title: "旧形式", dueDate: "2026-07-27", isUrgent: false, isImportant: false }, new Date("2026-07-20T00:00:00.000Z"), "id-legacy");
     expect(rowToTask(taskToRow(task).slice(0, -1))?.comment).toBe("");

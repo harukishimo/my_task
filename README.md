@@ -2,6 +2,8 @@
 
 期限と優先度から「今日やること」を見つける、個人用タスク管理アプリです。Next.js App RouterをUIとAPIに使い、Google Sheetsを正本データ、Vercelを実行環境として想定しています。
 
+「今日の段取り」では、未計画の未完了タスクを実行順へドラッグして並べ替えられます。スマートフォンでは上下ボタンで順番を調整できます。順番はGoogle Sheetsの`plan_date`・`plan_order`へ保存します。
+
 ## ローカル起動
 
 ```bash
@@ -35,6 +37,7 @@ node scripts/generate-passphrase-hash.mjs '16文字以上のパスフレーズ'
 - `/all`: TODO ALL
 - `/due`: 今日まで
 - `/matrix`: 優先度マトリクス
+- `/plan`: 今日の段取り（ドラッグ＆ドロップで実行順を作成）
 - `/login`: パスフレーズ認証
 - `/api/tasks`: タスクAPI
 - `lib/tasks`: 優先度・日付・集計のドメインロジック

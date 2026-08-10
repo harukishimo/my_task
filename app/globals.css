@@ -114,3 +114,31 @@ a { color: inherit; text-decoration: none; }
   .keyboard-hint { width: 100%; grid-column: 1 / -1; text-align: left; }
   .modal-actions .secondary-button, .modal-actions .primary-button { width: 100%; }
 }
+
+.planning-layout { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 16px; align-items: start; }
+.planning-panel { min-width: 0; padding: 21px; border: 1px solid var(--line); border-radius: 15px; background: var(--surface); box-shadow: 0 5px 20px rgba(32, 50, 53, .025); }
+.planning-queue-panel { background: #f7fbfa; }
+.planning-panel-header { display: flex; align-items: start; justify-content: space-between; gap: 12px; margin-bottom: 15px; }
+.planning-panel-header h2 { margin: 6px 0 0; font-size: 18px; }
+.planning-dropzone { min-height: 170px; padding: 7px; border: 1px dashed var(--line-strong); border-radius: 11px; transition: background .15s, border-color .15s; }
+.planning-dropzone.drop-active { border-color: var(--teal); background: var(--mint); }
+.planning-panel.drop-active { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(20,123,112,.08); }
+.planning-queue { min-height: 360px; }
+.planning-empty { min-height: 140px; display: grid; place-items: center; margin: 0; padding: 24px; color: var(--muted); font-size: 11px; line-height: 1.7; text-align: center; }
+.plan-task-card { display: flex; align-items: center; gap: 8px; min-width: 0; margin: 5px 0; padding: 11px 10px; border: 1px solid var(--line); border-radius: 10px; background: white; box-shadow: 0 3px 10px rgba(32, 50, 53, .035); }
+.plan-task-card.planned { border-color: #cde4df; }
+.plan-task-card.drag-preview { width: min(430px, 80vw); box-shadow: 0 16px 35px rgba(32, 50, 53, .18); }
+.plan-drag-handle { width: 28px; min-width: 28px; height: 34px; padding: 0; border: 0; border-radius: 7px; color: var(--muted); background: #f3f6f4; font-size: 18px; line-height: 1; cursor: grab; }
+.plan-drag-handle:hover:not(:disabled) { color: var(--teal); background: var(--mint); }.plan-drag-handle:active { cursor: grabbing; }.plan-drag-handle:disabled { cursor: wait; opacity: .45; }
+.plan-task-content { min-width: 0; flex: 1; padding: 0; border: 0; color: inherit; background: transparent; text-align: left; cursor: pointer; }
+.plan-task-content strong, .plan-task-content small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.plan-task-content strong { font-size: 12px; }.plan-task-content small { margin-top: 5px; color: var(--muted); font-size: 10px; }.plan-task-content:hover strong { color: var(--teal); }
+.plan-task-meta { display: flex; gap: 10px; margin-top: 5px; color: var(--muted); font-size: 10px; }.plan-task-meta b { font-weight: 800; }
+.plan-task-actions { display: flex; align-items: center; gap: 3px; }.plan-order-button, .plan-remove-button { width: 26px; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); background: white; font-size: 13px; }.plan-order-button:hover:not(:disabled) { color: var(--teal); border-color: var(--teal); background: var(--mint); }.plan-remove-button:hover:not(:disabled) { color: var(--coral); border-color: #efc3bb; background: #fff2ef; }.plan-order-button:disabled, .plan-remove-button:disabled { cursor: not-allowed; opacity: .3; }
+.planning-hint { margin: 14px 0 0; color: var(--muted); font-size: 10px; text-align: center; }
+@media (max-width: 680px) {
+  .mobile-nav { grid-template-columns: repeat(5, 1fr); }
+  .mobile-nav-link small { font-size: 7px; }
+  .planning-layout { grid-template-columns: 1fr; gap: 12px; }
+  .planning-queue-panel { order: -1; }.planning-panel { padding: 15px; }.planning-queue { min-height: 220px; }
+  .plan-task-actions { gap: 2px; }.plan-order-button, .plan-remove-button { width: 27px; height: 27px; }
+}

@@ -2,14 +2,17 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DndContext, DragEndEvent, DragOverlay, KeyboardSensor, PointerSensor, TouchSensor, closestCenter, pointerWithin, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
+import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import type { Priority, Task } from "@/types/task";
 import { calculatePriority, PRIORITY_LABELS } from "@/lib/tasks/priority";
 import { dashboardMetrics, dueDateSort, prioritySort, priorityTasks } from "@/lib/tasks/selectors";
 import { overdueDays, todayInTokyo } from "@/lib/tasks/date";
 import LogoMark from "@/app/_components/logo-mark";
 
-type View = "dashboard" | "all" | "due" | "matrix";
+type View = "dashboard" | "all" | "due" | "matrix" | "plan";
 type NewTaskDefaults = Pick<Task, "isUrgent" | "isImportant">;
 
 const PRIORITY_DEFAULTS: Record<Priority, NewTaskDefaults> = {
@@ -24,6 +27,7 @@ const navItems: Array<{ href: string; view: View; label: string; icon: string }>
   { href: "/all", view: "all", label: "TODO ALL", icon: "☷" },
   { href: "/due", view: "due", label: "今日まで", icon: "◷" },
   { href: "/matrix", view: "matrix", label: "マトリクス", icon: "⊞" },
+  { href: "/plan", view: "plan", label: "今日の段取り", icon: "≡" },
 ];
 
 export default function TaskApp({ view }: { view: View }) {
@@ -36,8 +40,10 @@ export default function TaskApp({ view }: { view: View }) {
   const [showCompleted, setShowCompleted] = useState(false);
   const [sort, setSort] = useState<"due" | "priority">("due");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const mutationVersion = useRef(0);
 
   const loadTasks = useCallback(async () => {
+    const requestVersion = mutationVersion.current;
     setLoading(true);
     try {
       const response = await fetch("/api/tasks?includeCompleted=true", { cache: "no-store" });
@@ -47,7 +53,7 @@ export default function TaskApp({ view }: { view: View }) {
       }
       const body = await response.json();
       if (!response.ok) throw new Error(body?.error?.message ?? "タスクを読み込めませんでした。");
-      setTasks(body.data ?? []);
+      if (requestVersion === mutationVersion.current) setTasks(body.data ?? []);
     } catch (error) {
       setNotice({ type: "error", text: error instanceof Error ? error.message : "タスクを読み込めませんでした。" });
     } finally {
@@ -83,6 +89,7 @@ export default function TaskApp({ view }: { view: View }) {
   }
 
   async function saveTask(input: { title: string; comment: string; dueDate: string; isUrgent: boolean; isImportant: boolean }, task?: Task) {
+    mutationVersion.current += 1;
     const response = await fetch(task ? `/api/tasks/${task.id}` : "/api/tasks", {
       method: task ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
@@ -96,6 +103,7 @@ export default function TaskApp({ view }: { view: View }) {
   }
 
   async function patchTask(task: Task, update: Record<string, unknown>, successText: string): Promise<boolean> {
+    mutationVersion.current += 1;
     try {
       const response = await fetch(`/api/tasks/${task.id}`, {
         method: "PATCH",
@@ -114,8 +122,36 @@ export default function TaskApp({ view }: { view: View }) {
     }
   }
 
+  async function savePlan(orderedTasks: Task[], removedTask?: Task) {
+    const today = todayInTokyo();
+    const operations = [
+      ...orderedTasks.map((task, index) => ({ task, planDate: today, planOrder: index + 1 })),
+      ...(removedTask ? [{ task: removedTask, planDate: null, planOrder: null }] : []),
+    ];
+    if (operations.length === 0) return;
+    mutationVersion.current += 1;
+    try {
+      const results = await Promise.all(operations.map(async ({ task, planDate, planOrder }) => {
+        const response = await fetch(`/api/tasks/${task.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ planDate, planOrder, version: task.version }),
+        });
+        const body = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(body?.error?.message ?? "段取りを保存できませんでした。");
+        return body.data as Task;
+      }));
+      setTasks((current) => current.map((task) => results.find((result) => result.id === task.id) ?? task));
+      setNotice({ type: "success", text: removedTask ? "段取りを更新しました。" : "段取りの順番を保存しました。" });
+    } catch (error) {
+      setNotice({ type: "error", text: error instanceof Error ? error.message : "段取りを保存できませんでした。" });
+      await loadTasks();
+    }
+  }
+
   async function deleteTask(task: Task) {
     if (!window.confirm(`「${task.title}」を削除しますか？`)) return;
+    mutationVersion.current += 1;
     try {
       const response = await fetch(`/api/tasks/${task.id}?version=${task.version}`, { method: "DELETE" });
       const body = await response.json().catch(() => null);
@@ -155,6 +191,7 @@ export default function TaskApp({ view }: { view: View }) {
           {view === "all" && <AllView active={active} completed={completed} showCompleted={showCompleted} setShowCompleted={setShowCompleted} sort={sort} setSort={setSort} onEdit={openTask} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onRestore={(task) => patchTask(task, { status: "todo" }, "タスクを復元しました。")} onDelete={deleteTask} onAdd={openNewTask} />}
           {view === "due" && <DueView tasks={tasks} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onEdit={openTask} />}
           {view === "matrix" && <MatrixView tasks={active} onMove={(task, isUrgent, isImportant) => patchTask(task, { isUrgent, isImportant }, "優先度マトリクスを更新しました。")} onEdit={openTask} onAdd={(priority) => openNewTask(PRIORITY_DEFAULTS[priority])} />}
+          {view === "plan" && <PlanningView tasks={tasks} onEdit={openTask} onPlanChange={savePlan} />}
         </>}
       </main>
       {editing && <TaskModal task={editing.id ? editing : undefined} initialValues={editing.id ? undefined : newTaskDefaults} onClose={() => setEditing(null)} onSave={saveTask} onComplete={editing.id ? (task) => patchTask(task, { status: task.status === "done" ? "todo" : "done" }, task.status === "done" ? "タスクを未完了に戻しました。" : "タスクを完了しました。") : undefined} />}
@@ -192,6 +229,153 @@ function DueView({ tasks, onComplete, onEdit }: { tasks: Task[]; onComplete: (ta
 }
 
 function DueSection({ title, subtitle, tasks, onComplete, onEdit }: { title: string; subtitle: string; tasks: Task[]; onComplete: (task: Task) => void; onEdit: (task: Task) => void }) { return <section className="panel due-section"><div className="panel-header"><div><h2>{title}</h2><p className="muted">{subtitle}</p></div><span className="count-pill">{tasks.length}件</span></div><TaskList tasks={tasks} onEdit={onEdit} onComplete={onComplete} showOverdue /></section>; }
+
+const PLAN_DROPZONE_ID = "today-plan-dropzone";
+const UNPLANNED_DROPZONE_ID = "unplanned-dropzone";
+
+function planCollisionDetection(args: Parameters<typeof pointerWithin>[0]) {
+  const pointerCollisions = pointerWithin(args);
+  return pointerCollisions.length > 0 ? pointerCollisions : closestCenter(args);
+}
+
+function PlanningView({ tasks, onEdit, onPlanChange }: { tasks: Task[]; onEdit: (task: Task) => void; onPlanChange: (orderedTasks: Task[], removedTask?: Task) => Promise<void> }) {
+  const today = todayInTokyo();
+  const activeTasks = tasks.filter((task) => !task.isDeleted && task.status === "todo");
+  const initialPlannedIds = activeTasks
+    .filter((task) => task.planDate === today)
+    .sort((a, b) => (a.planOrder ?? Number.MAX_SAFE_INTEGER) - (b.planOrder ?? Number.MAX_SAFE_INTEGER) || a.createdAt.localeCompare(b.createdAt))
+    .map((task) => task.id);
+  const [plannedIds, setPlannedIds] = useState(initialPlannedIds);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 120, tolerance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  // Keep the local drag order aligned with persisted task changes and date changes.
+  /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
+  useEffect(() => {
+    if (saving) return;
+    setPlannedIds((current) => current.length === initialPlannedIds.length && current.every((id, index) => id === initialPlannedIds[index]) ? current : initialPlannedIds);
+  }, [tasks, today, saving]);
+  /* eslint-enable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
+
+  const taskById = new Map(activeTasks.map((task) => [task.id, task]));
+  const planned = plannedIds.map((id) => taskById.get(id)).filter((task): task is Task => Boolean(task));
+  const plannedSet = new Set(planned.map((task) => task.id));
+  const unplanned = activeTasks.filter((task) => !plannedSet.has(task.id));
+  const draggingTask = draggingId ? taskById.get(draggingId) : undefined;
+
+  async function persistOrder(nextIds: string[], removedTask?: Task) {
+    if (saving) return;
+    setPlannedIds(nextIds);
+    const nextTasks = nextIds.map((id) => taskById.get(id)).filter((task): task is Task => Boolean(task));
+    setSaving(true);
+    try {
+      await onPlanChange(nextTasks, removedTask);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleDragEnd({ active, over }: DragEndEvent) {
+    setDraggingId(null);
+    if (!over) return;
+    const activeId = String(active.id);
+    const overId = String(over.id);
+    const currentIndex = plannedIds.indexOf(activeId);
+    const isPlanned = currentIndex >= 0;
+    const activeTask = taskById.get(activeId);
+    if (!activeTask) return;
+
+    if (overId === UNPLANNED_DROPZONE_ID && isPlanned) {
+      persistOrder(plannedIds.filter((id) => id !== activeId), activeTask);
+      return;
+    }
+    if (!isPlanned && (overId === PLAN_DROPZONE_ID || plannedIds.includes(overId))) {
+      const targetIndex = overId === PLAN_DROPZONE_ID ? plannedIds.length : plannedIds.indexOf(overId);
+      const nextIds = [...plannedIds];
+      nextIds.splice(Math.max(targetIndex, 0), 0, activeId);
+      persistOrder(nextIds);
+      return;
+    }
+    if (isPlanned && plannedIds.includes(overId) && activeId !== overId) {
+      persistOrder(arrayMove(plannedIds, currentIndex, plannedIds.indexOf(overId)));
+    }
+  }
+
+  function moveByButton(index: number, offset: number) {
+    const targetIndex = index + offset;
+    if (targetIndex < 0 || targetIndex >= plannedIds.length) return;
+    persistOrder(arrayMove(plannedIds, index, targetIndex));
+  }
+
+  return (
+    <div className="content-wrap planning-page">
+      <PageHeading eyebrow="TODAY / PLAN" title="今日の段取り" description={`${planned.length}件の実行順を決める。`} />
+      <DndContext sensors={sensors} collisionDetection={planCollisionDetection} onDragStart={({ active }) => setDraggingId(String(active.id))} onDragCancel={() => setDraggingId(null)} onDragEnd={handleDragEnd}>
+        <PlanningDropzones
+          unplanned={unplanned}
+          planned={planned}
+          disabled={saving}
+          onEdit={onEdit}
+          onMoveUp={(index) => moveByButton(index, -1)}
+          onMoveDown={(index) => moveByButton(index, 1)}
+          onRemove={(task) => persistOrder(plannedIds.filter((id) => id !== task.id), task)}
+        />
+        <DragOverlay>{draggingTask ? <PlanTaskPreview task={draggingTask} /> : null}</DragOverlay>
+      </DndContext>
+      <p className="planning-hint">タスクの左端をドラッグして追加・並び替えできます。スマホでは上下ボタンも使えます。</p>
+    </div>
+  );
+}
+
+function PlanningDropzones({ unplanned, planned, disabled, onEdit, onMoveUp, onMoveDown, onRemove }: { unplanned: Task[]; planned: Task[]; disabled: boolean; onEdit: (task: Task) => void; onMoveUp: (index: number) => void; onMoveDown: (index: number) => void; onRemove: (task: Task) => void }) {
+  const { setNodeRef: setPlanDropRef, isOver: isOverPlan } = useDroppable({ id: PLAN_DROPZONE_ID });
+  const { setNodeRef: setUnplannedDropRef, isOver: isOverUnplanned } = useDroppable({ id: UNPLANNED_DROPZONE_ID });
+  return (
+    <div className="planning-layout">
+      <section className="planning-panel" aria-labelledby="unplanned-title">
+        <div className="planning-panel-header"><div><p className="eyebrow">SOURCE TASKS</p><h2 id="unplanned-title">未計画タスク</h2></div><span className="count-pill">{unplanned.length}件</span></div>
+        <div id={UNPLANNED_DROPZONE_ID} ref={setUnplannedDropRef} className={`planning-dropzone ${isOverUnplanned ? "drop-active" : ""}`}>
+          <SortableContext items={unplanned.map((task) => task.id)} strategy={verticalListSortingStrategy}>
+            {unplanned.length === 0 ? <p className="planning-empty">未計画のタスクはありません。</p> : unplanned.map((task) => <PlanTaskCard key={task.id} task={task} disabled={disabled} onEdit={onEdit} />)}
+          </SortableContext>
+        </div>
+      </section>
+      <section id={PLAN_DROPZONE_ID} ref={setPlanDropRef} className={`planning-panel planning-queue-panel ${isOverPlan ? "drop-active" : ""}`} aria-labelledby="planned-title">
+        <div className="planning-panel-header"><div><p className="eyebrow">EXECUTION ORDER</p><h2 id="planned-title">今日の実行順</h2></div><span className="count-pill">{planned.length}件</span></div>
+        <div className="planning-dropzone planning-queue">
+          <SortableContext items={planned.map((task) => task.id)} strategy={verticalListSortingStrategy}>
+            {planned.length === 0 ? <p className="planning-empty">ここへタスクをドラッグすると、今日の段取りに追加されます。</p> : planned.map((task, index) => <PlanTaskCard key={task.id} task={task} planned disabled={disabled} index={index} total={planned.length} onEdit={onEdit} onMoveUp={() => onMoveUp(index)} onMoveDown={() => onMoveDown(index)} onRemove={() => onRemove(task)} />)}
+          </SortableContext>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function PlanTaskCard({ task, planned = false, disabled = false, index = 0, total = 0, onEdit, onMoveUp, onMoveDown, onRemove }: { task: Task; planned?: boolean; disabled?: boolean; index?: number; total?: number; onEdit: (task: Task) => void; onMoveUp?: () => void; onMoveDown?: () => void; onRemove?: () => void }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.35 : 1 };
+  return (
+    <article ref={setNodeRef} style={style} className={`plan-task-card ${planned ? "planned" : ""}`} data-plan-task-id={task.id} data-plan-task-title={task.title}>
+      <button type="button" className="plan-drag-handle" disabled={disabled} {...attributes} {...listeners} aria-label={`${task.title}をドラッグ`}>⠿</button>
+      <button type="button" className="plan-task-content" onClick={() => onEdit(task)} aria-label={`${task.title}の詳細を開く`}>
+        <strong title={task.title}>{truncateText(task.title, 34)}</strong>
+        <span className="plan-task-meta"><b className={`priority-text ${task.priority.toLowerCase()}`}>{task.priority}</b>{task.dueDate}</span>
+        {task.comment && <small title={task.comment}>{truncateText(task.comment, 52)}</small>}
+      </button>
+      {planned && <div className="plan-task-actions"><button type="button" className="plan-order-button" onClick={onMoveUp} disabled={disabled || index === 0} aria-label={`${task.title}を上へ移動`}>↑</button><button type="button" className="plan-order-button" onClick={onMoveDown} disabled={disabled || index === total - 1} aria-label={`${task.title}を下へ移動`}>↓</button><button type="button" className="plan-remove-button" onClick={onRemove} disabled={disabled} aria-label={`${task.title}を段取りから外す`}>×</button></div>}
+    </article>
+  );
+}
+
+function PlanTaskPreview({ task }: { task: Task }) {
+  return <div className="plan-task-card planned drag-preview"><span className="plan-drag-handle">⠿</span><div className="plan-task-content"><strong>{truncateText(task.title, 34)}</strong><span className="plan-task-meta"><b className={`priority-text ${task.priority.toLowerCase()}`}>{task.priority}</b>{task.dueDate}</span></div></div>;
+}
 
 const MATRIX_TITLE_MAX_LENGTH = 20;
 const MATRIX_COMMENT_MAX_LENGTH = 36;

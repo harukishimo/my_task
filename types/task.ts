@@ -12,6 +12,8 @@ export type Task = {
   status: TaskStatus;
   completedAt: string | null;
   isDeleted: boolean;
+  planDate: string | null;
+  planOrder: number | null;
   createdAt: string;
   updatedAt: string;
   version: number;
@@ -28,6 +30,8 @@ export type CreateTaskInput = {
 export type UpdateTaskInput = Partial<CreateTaskInput> & {
   status?: TaskStatus;
   isDeleted?: boolean;
+  planDate?: string | null;
+  planOrder?: number | null;
   version: number;
 };
 

@@ -3,10 +3,11 @@ import type { CreateTaskInput, Task } from "@/types/task";
 
 export const TASK_HEADERS = [
   "id", "title", "due_date", "is_urgent", "is_important", "priority",
-  "status", "completed_at", "is_deleted", "created_at", "updated_at", "version", "comment",
+  "status", "completed_at", "is_deleted", "created_at", "updated_at", "version", "comment", "plan_date", "plan_order",
 ] as const;
 
-export const LEGACY_TASK_HEADERS = TASK_HEADERS.slice(0, -1);
+export const COMMENT_TASK_HEADERS = TASK_HEADERS.slice(0, 13);
+export const LEGACY_TASK_HEADERS = TASK_HEADERS.slice(0, 12);
 
 export function taskToRow(task: Task): string[] {
   return [
@@ -23,6 +24,8 @@ export function taskToRow(task: Task): string[] {
     task.updatedAt,
     String(task.version),
     task.comment,
+    task.planDate ?? "",
+    task.planOrder === null ? "" : String(task.planOrder),
   ];
 }
 
@@ -30,7 +33,7 @@ export function rowToTask(row: string[], rowNumber?: number): Task | null {
   if (row.length === 0 || row.every((value) => value.trim() === "")) return null;
   if (row[0] === "id") return null;
   if (row.length < LEGACY_TASK_HEADERS.length) throw new Error(`INVALID_ROW:${rowNumber ?? "unknown"}`);
-  const [id, title, dueDate, urgent, important, storedPriority, status, completedAt, deleted, createdAt, updatedAt, version, comment] = row;
+  const [id, title, dueDate, urgent, important, storedPriority, status, completedAt, deleted, createdAt, updatedAt, version, comment, planDate, planOrder] = row;
   void storedPriority;
   if (!id || !title || !dueDate || !createdAt || !updatedAt) throw new Error(`INVALID_ROW:${rowNumber ?? "unknown"}`);
   const isUrgent = parseBoolean(urgent);
@@ -38,6 +41,8 @@ export function rowToTask(row: string[], rowNumber?: number): Task | null {
   if (status !== "todo" && status !== "done") throw new Error(`INVALID_ROW:${rowNumber ?? "unknown"}`);
   const numericVersion = Number(version);
   if (!Number.isSafeInteger(numericVersion) || numericVersion < 1) throw new Error(`INVALID_ROW:${rowNumber ?? "unknown"}`);
+  const numericPlanOrder = planOrder?.trim() ? Number(planOrder) : null;
+  if (numericPlanOrder !== null && (!Number.isSafeInteger(numericPlanOrder) || numericPlanOrder < 1)) throw new Error(`INVALID_ROW:${rowNumber ?? "unknown"}`);
   return {
     id,
     title,
@@ -49,6 +54,8 @@ export function rowToTask(row: string[], rowNumber?: number): Task | null {
     status,
     completedAt: completedAt || null,
     isDeleted: parseBoolean(deleted),
+    planDate: planDate?.trim() || null,
+    planOrder: numericPlanOrder,
     createdAt,
     updatedAt,
     version: numericVersion,
@@ -68,6 +75,8 @@ export function inputToTask(input: CreateTaskInput, now = new Date(), id = crypt
     status: "todo",
     completedAt: null,
     isDeleted: false,
+    planDate: null,
+    planOrder: null,
     createdAt: timestamp,
     updatedAt: timestamp,
     version: 1,

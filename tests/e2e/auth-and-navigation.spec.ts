@@ -69,6 +69,68 @@ test.describe("authentication boundary", () => {
     }
   });
 
+  test("builds and persists today's execution order", async ({ page }) => {
+    test.skip(test.info().project.name === "mobile", "ドラッグ操作はPC幅で検証する");
+    const firstTitle = `Plan first ${randomUUID()}`;
+    const secondTitle = `Plan second ${randomUUID()}`;
+    await page.goto("/login");
+    await page.getByLabel("パスフレーズ").fill("test-passphrase-long");
+    await page.getByRole("button", { name: "ロックを解除" }).click();
+    await expect(page).toHaveURL(/\/dashboard$/);
+
+    for (const title of [firstTitle, secondTitle]) {
+      await page.getByRole("button", { name: /タスクを追加/ }).first().click();
+      await page.getByLabel("タスク名").fill(title);
+      await page.getByLabel("期日").fill("2026-08-15");
+      await page.getByRole("button", { name: "保存する" }).click();
+      await expect(page.getByRole("button", { name: `${title}の詳細を開く` })).toBeVisible();
+    }
+
+    await page.getByRole("link", { name: "今日の段取り" }).first().click();
+    await expect(page).toHaveURL(/\/plan$/);
+    await expect(page.getByRole("heading", { name: "今日の段取り" })).toBeVisible();
+    const planDropzone = page.locator("#today-plan-dropzone");
+
+    for (const title of [firstTitle, secondTitle]) {
+      const sourceHandle = page.locator(`[data-plan-task-title="${title}"] .plan-drag-handle`);
+      const sourceBox = await sourceHandle.boundingBox();
+      const targetBox = await planDropzone.boundingBox();
+      if (!sourceBox || !targetBox) throw new Error("段取りドラッグ対象の座標を取得できませんでした。");
+      await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(sourceBox.x + sourceBox.width / 2 + 16, sourceBox.y + sourceBox.height / 2, { steps: 4 });
+      await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + Math.min(targetBox.height / 2, 90), { steps: 16 });
+      await page.mouse.up();
+      await expect(planDropzone.locator(`[data-plan-task-title="${title}"]`)).toBeVisible();
+      await expect(page.getByRole("status").filter({ hasText: "段取り" })).toBeVisible();
+    }
+
+    await expect(page.getByRole("button", { name: `${secondTitle}を上へ移動` })).toBeEnabled();
+    await page.getByRole("button", { name: `${secondTitle}を上へ移動` }).click();
+    await expect(planDropzone.locator(`[data-plan-task-title="${secondTitle}"]`)).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "段取り" })).toBeVisible();
+    const plannedTitles = () => planDropzone.locator("[data-plan-task-title]").evaluateAll((elements) => elements.map((element) => element.getAttribute("data-plan-task-title")));
+    const orderedTitles = await plannedTitles();
+    expect(orderedTitles.indexOf(secondTitle)).toBeGreaterThanOrEqual(0);
+    expect(orderedTitles.indexOf(secondTitle)).toBeLessThan(orderedTitles.indexOf(firstTitle));
+    await page.reload();
+    await expect(page.locator(`[data-plan-task-title="${secondTitle}"]`)).toBeVisible();
+    const reloadedTitles = await plannedTitles();
+    expect(reloadedTitles.indexOf(secondTitle)).toBeLessThan(reloadedTitles.indexOf(firstTitle));
+  });
+
+  test("shows mobile planning navigation and fallback controls", async ({ page }) => {
+    test.skip(test.info().project.name !== "mobile", "モバイル表示のみ検証する");
+    await page.goto("/login");
+    await page.getByLabel("パスフレーズ").fill("test-passphrase-long");
+    await page.getByRole("button", { name: "ロックを解除" }).click();
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await page.getByRole("link", { name: "今日の段取り" }).last().click();
+    await expect(page.getByRole("heading", { name: "今日の段取り" })).toBeVisible();
+    await expect(page.locator(".mobile-nav-link")).toHaveCount(5);
+    await expect(page.getByText("スマホでは上下ボタンも使えます。", { exact: false })).toBeVisible();
+  });
+
   test("collapses and expands the desktop sidebar", async ({ page }) => {
     test.skip(test.info().project.name === "mobile", "サイドバーはPC幅のみ表示する");
     await page.goto("/login");

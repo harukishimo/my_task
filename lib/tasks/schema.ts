@@ -19,6 +19,8 @@ export const updateTaskSchema = z.object({
   isImportant: z.boolean().optional(),
   status: z.enum(["todo", "done"]).optional(),
   isDeleted: z.boolean().optional(),
+  planDate: dateSchema.nullable().optional(),
+  planOrder: z.number().int().positive().nullable().optional(),
   version: z.number().int().positive(),
 }).strict();
 
