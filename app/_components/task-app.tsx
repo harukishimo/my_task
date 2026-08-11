@@ -6,14 +6,14 @@ import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useS
 import { DndContext, DragEndEvent, DragOverlay, KeyboardSensor, PointerSensor, TouchSensor, closestCenter, pointerWithin, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { Priority, Task } from "@/types/task";
+import type { Priority, Task, TaskCategory } from "@/types/task";
 import { calculatePriority, PRIORITY_LABELS } from "@/lib/tasks/priority";
 import { dashboardMetrics, dueDateSort, prioritySort, priorityTasks } from "@/lib/tasks/selectors";
 import { overdueDays, todayInTokyo } from "@/lib/tasks/date";
 import LogoMark from "@/app/_components/logo-mark";
 
-type View = "dashboard" | "all" | "due" | "matrix" | "plan";
-type NewTaskDefaults = Pick<Task, "isUrgent" | "isImportant">;
+type View = "dashboard" | "all" | "due" | "matrix" | "plan" | "private";
+type NewTaskDefaults = Pick<Task, "isUrgent" | "isImportant"> & { category?: TaskCategory };
 
 const PRIORITY_DEFAULTS: Record<Priority, NewTaskDefaults> = {
   P1: { isUrgent: true, isImportant: true },
@@ -28,6 +28,7 @@ const navItems: Array<{ href: string; view: View; label: string; icon: string }>
   { href: "/due", view: "due", label: "今日まで", icon: "◷" },
   { href: "/matrix", view: "matrix", label: "マトリクス", icon: "⊞" },
   { href: "/plan", view: "plan", label: "今日の段取り", icon: "≡" },
+  { href: "/private", view: "private", label: "プライベート", icon: "◇" },
 ];
 
 export default function TaskApp({ view }: { view: View }) {
@@ -88,7 +89,7 @@ export default function TaskApp({ view }: { view: View }) {
     setEditing(task);
   }
 
-  async function saveTask(input: { title: string; comment: string; dueDate: string; isUrgent: boolean; isImportant: boolean }, task?: Task) {
+  async function saveTask(input: { title: string; comment: string; dueDate: string; isUrgent: boolean; isImportant: boolean; category: TaskCategory }, task?: Task) {
     mutationVersion.current += 1;
     const response = await fetch(task ? `/api/tasks/${task.id}` : "/api/tasks", {
       method: task ? "PATCH" : "POST",
@@ -172,6 +173,8 @@ export default function TaskApp({ view }: { view: View }) {
 
   const active = useMemo(() => tasks.filter((task) => !task.isDeleted && task.status === "todo"), [tasks]);
   const completed = useMemo(() => tasks.filter((task) => !task.isDeleted && task.status === "done"), [tasks]);
+  const privateActive = useMemo(() => active.filter((task) => task.category === "private"), [active]);
+  const privateCompleted = useMemo(() => completed.filter((task) => task.category === "private"), [completed]);
   const metrics = useMemo(() => dashboardMetrics(tasks), [tasks]);
 
   return (
@@ -189,6 +192,7 @@ export default function TaskApp({ view }: { view: View }) {
         {loading ? <LoadingState /> : <>
           {view === "dashboard" && <DashboardView tasks={tasks} metrics={metrics} onQuickAdd={openNewTask} onEdit={openTask} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} />}
           {view === "all" && <AllView active={active} completed={completed} showCompleted={showCompleted} setShowCompleted={setShowCompleted} sort={sort} setSort={setSort} onEdit={openTask} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onRestore={(task) => patchTask(task, { status: "todo" }, "タスクを復元しました。")} onDelete={deleteTask} onAdd={openNewTask} />}
+          {view === "private" && <AllView active={privateActive} completed={privateCompleted} showCompleted={showCompleted} setShowCompleted={setShowCompleted} sort={sort} setSort={setSort} onEdit={openTask} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onRestore={(task) => patchTask(task, { status: "todo" }, "タスクを復元しました。")} onDelete={deleteTask} onAdd={() => openNewTask({ ...PRIORITY_DEFAULTS.P4, category: "private" })} heading="プライベートタスク" eyebrow="PRIVATE TASKS" emptyText="プライベートタスクはありません。" />}
           {view === "due" && <DueView tasks={tasks} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onEdit={openTask} />}
           {view === "matrix" && <MatrixView tasks={active} onMove={(task, isUrgent, isImportant) => patchTask(task, { isUrgent, isImportant }, "優先度マトリクスを更新しました。")} onEdit={openTask} onAdd={(priority) => openNewTask(PRIORITY_DEFAULTS[priority])} />}
           {view === "plan" && <PlanningView tasks={tasks} onEdit={openTask} onPlanChange={savePlan} onAdd={() => openNewTask(PRIORITY_DEFAULTS.P4)} />}
@@ -215,9 +219,9 @@ function DashboardView({ tasks, metrics, onQuickAdd, onEdit, onComplete }: { tas
   </div>;
 }
 
-function AllView({ active, completed, showCompleted, setShowCompleted, sort, setSort, onEdit, onComplete, onRestore, onDelete, onAdd }: { active: Task[]; completed: Task[]; showCompleted: boolean; setShowCompleted: (value: boolean) => void; sort: "due" | "priority"; setSort: (value: "due" | "priority") => void; onEdit: (task: Task) => void; onComplete: (task: Task) => void; onRestore: (task: Task) => void; onDelete: (task: Task) => void; onAdd: () => void }) {
+function AllView({ active, completed, showCompleted, setShowCompleted, sort, setSort, onEdit, onComplete, onRestore, onDelete, onAdd, heading = "TODO ALL", eyebrow = "ALL TASKS", emptyText = "未完了タスクはありません。" }: { active: Task[]; completed: Task[]; showCompleted: boolean; setShowCompleted: (value: boolean) => void; sort: "due" | "priority"; setSort: (value: "due" | "priority") => void; onEdit: (task: Task) => void; onComplete: (task: Task) => void; onRestore: (task: Task) => void; onDelete: (task: Task) => void; onAdd: () => void; heading?: string; eyebrow?: string; emptyText?: string }) {
   const ordered = sort === "due" ? dueDateSort(active) : prioritySort(active);
-  return <div className="content-wrap"><PageHeading eyebrow="ALL TASKS" title="TODO ALL" description={`${active.length}件の未完了タスク`} action={<button className="primary-button" onClick={onAdd}>＋ タスクを追加</button>} /><section className="panel"><div className="toolbar"><div className="segmented"><button className={sort === "due" ? "selected" : ""} onClick={() => setSort("due")}>期日順</button><button className={sort === "priority" ? "selected" : ""} onClick={() => setSort("priority")}>優先度順</button></div><label className="toggle"><input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} /><span>完了済みを表示</span></label></div>{ordered.length === 0 && !showCompleted ? <EmptyState text="未完了タスクはありません。" /> : <TaskList tasks={showCompleted ? [...ordered, ...completed] : ordered} onEdit={onEdit} onComplete={onComplete} onRestore={onRestore} onDelete={onDelete} showCompleted={showCompleted} />}</section></div>;
+  return <div className="content-wrap"><PageHeading eyebrow={eyebrow} title={heading} description={`${active.length}件の未完了タスク`} action={<button className="primary-button" onClick={onAdd}>＋ タスクを追加</button>} /><section className="panel"><div className="toolbar"><div className="segmented"><button className={sort === "due" ? "selected" : ""} onClick={() => setSort("due")}>期日順</button><button className={sort === "priority" ? "selected" : ""} onClick={() => setSort("priority")}>優先度順</button></div><label className="toggle"><input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} /><span>完了済みを表示</span></label></div>{ordered.length === 0 && !showCompleted ? <EmptyState text={emptyText} /> : <TaskList tasks={showCompleted ? [...ordered, ...completed] : ordered} onEdit={onEdit} onComplete={onComplete} onRestore={onRestore} onDelete={onDelete} showCompleted={showCompleted} />}</section></div>;
 }
 
 function DueView({ tasks, onComplete, onEdit }: { tasks: Task[]; onComplete: (task: Task) => void; onEdit: (task: Task) => void }) {
@@ -448,12 +452,13 @@ function TaskList({ tasks, onEdit, onComplete, onRestore, onDelete, showComplete
 
 function EmptyState({ text }: { text: string }) { return <div className="empty-state"><span aria-hidden="true">✦</span><p>{text}</p></div>; }
 
-function TaskModal({ task, initialValues, onClose, onSave, onComplete }: { task?: Task; initialValues?: NewTaskDefaults; onClose: () => void; onSave: (input: { title: string; comment: string; dueDate: string; isUrgent: boolean; isImportant: boolean }, task?: Task) => Promise<void>; onComplete?: (task: Task) => Promise<boolean> }) {
+function TaskModal({ task, initialValues, onClose, onSave, onComplete }: { task?: Task; initialValues?: NewTaskDefaults; onClose: () => void; onSave: (input: { title: string; comment: string; dueDate: string; isUrgent: boolean; isImportant: boolean; category: TaskCategory }, task?: Task) => Promise<void>; onComplete?: (task: Task) => Promise<boolean> }) {
   const [title, setTitle] = useState(task?.title ?? "");
   const [comment, setComment] = useState(task?.comment ?? "");
   const [dueDate, setDueDate] = useState(task?.dueDate ?? todayInTokyo());
   const [isUrgent, setIsUrgent] = useState(task?.isUrgent ?? initialValues?.isUrgent ?? false);
   const [isImportant, setIsImportant] = useState(task?.isImportant ?? initialValues?.isImportant ?? false);
+  const [category, setCategory] = useState<TaskCategory>(task?.category ?? initialValues?.category ?? "default");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [completing, setCompleting] = useState(false);
@@ -463,7 +468,7 @@ function TaskModal({ task, initialValues, onClose, onSave, onComplete }: { task?
     setError("");
     setSaving(true);
     try {
-      await onSave({ title, comment, dueDate, isUrgent, isImportant }, task);
+      await onSave({ title, comment, dueDate, isUrgent, isImportant, category }, task);
     } catch (e) {
       setError(e instanceof Error ? e.message : "保存できませんでした。");
     } finally {
@@ -496,6 +501,11 @@ function TaskModal({ task, initialValues, onClose, onSave, onComplete }: { task?
         <form onSubmit={submit} onKeyDown={handleKeyDown}>
           <label htmlFor="task-title">タスク名</label>
           <input id="task-title" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={200} required autoFocus />
+          <label htmlFor="task-category">カテゴリ</label>
+          <select id="task-category" value={category} onChange={(event) => setCategory(event.target.value as TaskCategory)}>
+            <option value="default">通常</option>
+            <option value="private">プライベート</option>
+          </select>
           <label htmlFor="task-comment">コメント</label>
           <textarea id="task-comment" value={comment} onChange={(event) => setComment(event.target.value)} maxLength={2000} rows={4} placeholder="補足、次にやること、参考情報など" />
           <label htmlFor="task-due">期日 <span className="required">必須</span></label>

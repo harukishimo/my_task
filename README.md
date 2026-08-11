@@ -38,10 +38,13 @@ node scripts/generate-passphrase-hash.mjs '16文字以上のパスフレーズ'
 - `/due`: 今日まで
 - `/matrix`: 優先度マトリクス
 - `/plan`: 今日の段取り（ドラッグ＆ドロップで実行順を作成）
+- `/private`: プライベートカテゴリのタスク一覧
 - `/login`: パスフレーズ認証
 - `/api/tasks`: タスクAPI
 - `lib/tasks`: 優先度・日付・集計のドメインロジック
 - `lib/sheets`: Google Sheets Repositoryと行変換
+
+タスク作成時にカテゴリ（通常／プライベート）を選択できます。カテゴリは同じTasks表の`category`列で管理され、プライベートタスクもTODO ALL・今日まで・マトリクス・今日の段取りなどの通常画面に表示されます。
 
 ## デプロイ
 

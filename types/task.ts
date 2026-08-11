@@ -1,5 +1,6 @@
 export type Priority = "P1" | "P2" | "P3" | "P4";
 export type TaskStatus = "todo" | "done";
+export type TaskCategory = "default" | "private";
 
 export type Task = {
   id: string;
@@ -14,6 +15,7 @@ export type Task = {
   isDeleted: boolean;
   planDate: string | null;
   planOrder: number | null;
+  category: TaskCategory;
   createdAt: string;
   updatedAt: string;
   version: number;
@@ -25,6 +27,7 @@ export type CreateTaskInput = {
   dueDate: string;
   isUrgent: boolean;
   isImportant: boolean;
+  category?: TaskCategory;
 };
 
 export type UpdateTaskInput = Partial<CreateTaskInput> & {
@@ -32,6 +35,7 @@ export type UpdateTaskInput = Partial<CreateTaskInput> & {
   isDeleted?: boolean;
   planDate?: string | null;
   planOrder?: number | null;
+  category?: TaskCategory;
   version: number;
 };
 

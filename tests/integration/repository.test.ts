@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { InMemoryTaskRepository } from "@/lib/tasks/in-memory-repository";
 
 describe("TaskRepository contract", () => {
+  it("stores the private category in the same task repository", async () => {
+    const repository = new InMemoryTaskRepository();
+    const created = await repository.create({ title: "個人用", dueDate: "2026-07-27", isUrgent: false, isImportant: false, category: "private" });
+    expect(created.category).toBe("private");
+    expect(await repository.list()).toEqual([created]);
+  });
+
   it("creates, updates, completes, restores, and logically deletes", async () => {
     const repository = new InMemoryTaskRepository();
     const created = await repository.create({ title: "検証する", dueDate: "2026-07-27", isUrgent: false, isImportant: true });

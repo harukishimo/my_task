@@ -69,6 +69,37 @@ test.describe("authentication boundary", () => {
     }
   });
 
+  test("creates a private task and filters it without hiding it from normal views", async ({ page }) => {
+    const privateTitle = `Private task ${test.info().project.name} ${randomUUID()}`;
+    const normalTitle = `Normal task ${test.info().project.name} ${randomUUID()}`;
+    await page.goto("/login");
+    await page.getByLabel("パスフレーズ").fill("test-passphrase-long");
+    await page.getByRole("button", { name: "ロックを解除" }).click();
+    await expect(page).toHaveURL(/\/dashboard$/);
+
+    await page.getByRole("button", { name: /タスクを追加/ }).first().click();
+    await page.getByLabel("タスク名").fill(privateTitle);
+    await page.getByLabel("カテゴリ").selectOption("private");
+    await page.getByLabel("期日").fill("2026-08-20");
+    await page.getByRole("button", { name: "保存する" }).click();
+    await expect(page.getByRole("button", { name: `${privateTitle}の詳細を開く` })).toBeVisible();
+
+    await page.getByRole("button", { name: /タスクを追加/ }).first().click();
+    await page.getByLabel("タスク名").fill(normalTitle);
+    await page.getByLabel("期日").fill("2026-08-21");
+    await page.getByRole("button", { name: "保存する" }).click();
+    await page.getByRole("link", { name: "TODO ALL" }).first().click();
+    await expect(page).toHaveURL(/\/all$/);
+    await expect(page.getByRole("button", { name: `${normalTitle}の詳細を開く` })).toBeVisible();
+    await expect(page.getByRole("button", { name: `${privateTitle}の詳細を開く` })).toBeVisible();
+
+    await page.getByRole("link", { name: "プライベート" }).first().click();
+    await expect(page).toHaveURL(/\/private$/);
+    await expect(page.getByRole("heading", { name: "プライベートタスク" })).toBeVisible();
+    await expect(page.getByText(privateTitle)).toBeVisible();
+    await expect(page.getByText(normalTitle)).toHaveCount(0);
+  });
+
   test("builds and persists today's execution order", async ({ page }) => {
     test.skip(test.info().project.name === "mobile", "ドラッグ操作はPC幅で検証する");
     const firstTitle = `Plan first ${randomUUID()}`;
@@ -132,7 +163,7 @@ test.describe("authentication boundary", () => {
     await expect(page).toHaveURL(/\/dashboard$/);
     await page.getByRole("link", { name: "今日の段取り" }).last().click();
     await expect(page.getByRole("heading", { name: "今日の段取り" })).toBeVisible();
-    await expect(page.locator(".mobile-nav-link")).toHaveCount(5);
+    await expect(page.locator(".mobile-nav-link")).toHaveCount(6);
     await expect(page.getByText("スマホでは上下ボタンも使えます。", { exact: false })).toBeVisible();
   });
 

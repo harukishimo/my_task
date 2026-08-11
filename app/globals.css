@@ -136,9 +136,13 @@ a { color: inherit; text-decoration: none; }
 .plan-task-actions { display: flex; align-items: center; gap: 3px; }.plan-order-button, .plan-remove-button { width: 26px; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); background: white; font-size: 13px; }.plan-order-button:hover:not(:disabled) { color: var(--teal); border-color: var(--teal); background: var(--mint); }.plan-remove-button:hover:not(:disabled) { color: var(--coral); border-color: #efc3bb; background: #fff2ef; }.plan-order-button:disabled, .plan-remove-button:disabled { cursor: not-allowed; opacity: .3; }
 .planning-hint { margin: 14px 0 0; color: var(--muted); font-size: 10px; text-align: center; }
 @media (max-width: 680px) {
-  .mobile-nav { grid-template-columns: repeat(5, 1fr); }
-  .mobile-nav-link small { font-size: 7px; }
+  .mobile-nav { grid-template-columns: repeat(6, 1fr); }
+  .mobile-nav-link small { font-size: 6px; }
   .planning-layout { grid-template-columns: 1fr; gap: 12px; }
   .planning-queue-panel { order: -1; }.planning-panel { padding: 15px; }.planning-queue { min-height: 220px; }
   .plan-task-actions { gap: 2px; }.plan-order-button, .plan-remove-button { width: 27px; height: 27px; }
 }
+
+.modal select { width: 100%; border: 1px solid var(--line-strong); border-radius: 8px; padding: 12px; color: var(--ink); background: #fbfcfb; }
+.modal select:focus { border-color: var(--teal); outline: 3px solid rgba(20,123,112,.12); }
+@media (max-width: 680px) { .modal select { font-size: 16px; } }
