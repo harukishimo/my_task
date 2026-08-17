@@ -482,20 +482,20 @@ function PlanTaskPreview({ task }: { task: Task }) {
 
 function ScheduleTimeline({ items, tasks, loading, saving, onAdd, onEdit, onDelete, onComplete }: { items: ScheduleItem[]; tasks: Task[]; loading: boolean; saving: boolean; onAdd: () => void; onEdit: (item: ScheduleItem) => void; onDelete: (item: ScheduleItem) => void; onComplete: (task: Task) => void }) {
   const taskById = new Map(tasks.map((task) => [task.id, task]));
+  const layouts = getScheduleLayouts(items);
   return (
     <section className="schedule-panel" aria-labelledby="schedule-title">
       <div className="schedule-panel-header"><div><p className="eyebrow">TIME BLOCKS</p><h2 id="schedule-title">今日のスケジュール</h2><p className="muted">タスクと自由予定を同じ時間軸で見る。</p></div><button type="button" className="secondary-button" onClick={onAdd}>＋ 予定を追加</button></div>
       {loading ? <div className="schedule-loading">時間割を読み込んでいます…</div> : <div className="schedule-grid-scroll" role="region" aria-label="今日の時間割。スクロールできます" tabIndex={0}>
         <div className="schedule-grid" style={{ gridTemplateRows: `repeat(${SCHEDULE_SLOTS.length}, 44px)` }}>
           {SCHEDULE_SLOTS.map((time, index) => <ScheduleSlot key={time} time={time} row={index + 1} />)}
-          {items.map((item) => {
-            const startIndex = Math.floor((toMinutes(item.startTime) - SCHEDULE_START_MINUTES) / SCHEDULE_SLOT_MINUTES);
-            const endIndex = Math.ceil((toMinutes(item.endTime) - SCHEDULE_START_MINUTES) / SCHEDULE_SLOT_MINUTES);
-            if (startIndex < 0 || startIndex >= SCHEDULE_SLOTS.length) return null;
-            const task = item.taskId ? taskById.get(item.taskId) : undefined;
-            const displayTitle = task?.title ?? item.title;
-            return <ScheduleBlock key={item.id} item={item} title={displayTitle} task={task} startIndex={startIndex} span={Math.max(1, Math.min(SCHEDULE_SLOTS.length - startIndex, endIndex - startIndex))} disabled={saving} onEdit={() => onEdit(item)} onDelete={() => onDelete(item)} onComplete={onComplete} />;
-          })}
+          <div className="schedule-block-layer">
+            {layouts.map(({ item, startIndex, span, column, columnCount }) => {
+              const task = item.taskId ? taskById.get(item.taskId) : undefined;
+              const displayTitle = task?.title ?? item.title;
+              return <ScheduleBlock key={item.id} item={item} title={displayTitle} task={task} startIndex={startIndex} span={span} column={column} columnCount={columnCount} disabled={saving} onEdit={() => onEdit(item)} onDelete={() => onDelete(item)} onComplete={onComplete} />;
+            })}
+          </div>
         </div>
       </div>}
       {!loading && items.length === 0 && <p className="schedule-empty">予定はまだありません。タスクをここへドラッグするか、自由予定を追加できます。</p>}
@@ -508,9 +508,56 @@ function ScheduleSlot({ time, row }: { time: string; row: number }) {
   return <div ref={setNodeRef} style={{ gridRow: row }} className={`schedule-slot ${isOver ? "drop-active" : ""}`}><span>{time.endsWith(":00") ? time : ""}</span></div>;
 }
 
-function ScheduleBlock({ item, title, task, startIndex, span, disabled, onEdit, onDelete, onComplete }: { item: ScheduleItem; title: string; task?: Task; startIndex: number; span: number; disabled: boolean; onEdit: () => void; onDelete: () => void; onComplete: (task: Task) => void }) {
+type ScheduleLayout = { item: ScheduleItem; startIndex: number; span: number; column: number; columnCount: number };
+
+function getScheduleLayouts(items: ScheduleItem[]): ScheduleLayout[] {
+  const candidates = items
+    .map((item) => {
+      const startMinutes = toMinutes(item.startTime);
+      const endMinutes = toMinutes(item.endTime);
+      const startIndex = Math.floor((startMinutes - SCHEDULE_START_MINUTES) / SCHEDULE_SLOT_MINUTES);
+      const endIndex = Math.ceil((endMinutes - SCHEDULE_START_MINUTES) / SCHEDULE_SLOT_MINUTES);
+      if (startIndex < 0 || startIndex >= SCHEDULE_SLOTS.length) return null;
+      return { item, startMinutes, endMinutes, startIndex, span: Math.max(1, Math.min(SCHEDULE_SLOTS.length - startIndex, endIndex - startIndex)) };
+    })
+    .filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate))
+    .sort((a, b) => a.startMinutes - b.startMinutes || a.endMinutes - b.endMinutes || a.item.sortOrder - b.item.sortOrder || a.item.id.localeCompare(b.item.id));
+
+  const layouts: ScheduleLayout[] = [];
+  let group: ScheduleLayout[] = [];
+  let columnEndMinutes: number[] = [];
+  let groupEndMinutes = Number.NEGATIVE_INFINITY;
+
+  function finishGroup() {
+    const columnCount = columnEndMinutes.length;
+    for (const layout of group) layout.columnCount = columnCount;
+    group = [];
+    columnEndMinutes = [];
+    groupEndMinutes = Number.NEGATIVE_INFINITY;
+  }
+
+  for (const candidate of candidates) {
+    if (group.length > 0 && candidate.startMinutes >= groupEndMinutes) finishGroup();
+    let column = columnEndMinutes.findIndex((endMinutes) => endMinutes <= candidate.startMinutes);
+    if (column < 0) {
+      column = columnEndMinutes.length;
+      columnEndMinutes.push(candidate.endMinutes);
+    } else {
+      columnEndMinutes[column] = candidate.endMinutes;
+    }
+    const layout: ScheduleLayout = { item: candidate.item, startIndex: candidate.startIndex, span: candidate.span, column, columnCount: 0 };
+    group.push(layout);
+    layouts.push(layout);
+    groupEndMinutes = Math.max(groupEndMinutes, candidate.endMinutes);
+  }
+  finishGroup();
+  return layouts;
+}
+
+function ScheduleBlock({ item, title, task, startIndex, span, column, columnCount, disabled, onEdit, onDelete, onComplete }: { item: ScheduleItem; title: string; task?: Task; startIndex: number; span: number; column: number; columnCount: number; disabled: boolean; onEdit: () => void; onDelete: () => void; onComplete: (task: Task) => void }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `${SCHEDULE_ITEM_PREFIX}${item.id}`, disabled });
-  const style = { gridRow: `${startIndex + 1} / span ${span}`, transform: CSS.Transform.toString(transform), opacity: isDragging ? 0.35 : 1 };
+  const columnWidth = 100 / columnCount;
+  const style = { top: `${startIndex * 44 + 3}px`, height: `calc(${span * 44}px - 6px)`, left: `${column * columnWidth}%`, width: `calc(${columnWidth}% - var(--schedule-block-gap))`, transform: CSS.Transform.toString(transform), opacity: isDragging ? 0.35 : 1 };
   return <article ref={setNodeRef} style={style} className={`schedule-block ${item.itemType === "event" ? "event" : "task"}`} {...attributes} {...listeners} onClick={onEdit} title="ドラッグして時間を変更できます。クリックで編集します。">
     <div className="schedule-block-main"><span>{item.startTime}–{item.endTime}</span><strong>{truncateText(title, 38)}</strong>{item.comment && <small>{truncateText(item.comment, 52)}</small>}</div>
     <div className="schedule-block-actions"><button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onEdit(); }} aria-label={`${title}の予定を編集`}>✎</button>{task && <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onComplete(task); }} aria-label={`${title}を完了にする`}>○</button>}<button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onDelete(); }} aria-label={`${title}の予定を削除`}>×</button></div>
