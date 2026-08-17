@@ -9,6 +9,7 @@ export type ServerConfig = {
   googlePrivateKey: string;
   googleSheetId: string;
   googleSheetTab: string;
+  googleScheduleTab: string;
   appTimeZone: string;
 };
 
@@ -37,6 +38,7 @@ export function getServerConfig(): ServerConfig {
     googlePrivateKey: process.env.GOOGLE_PRIVATE_KEY!,
     googleSheetId: process.env.GOOGLE_SHEET_ID!,
     googleSheetTab: process.env.GOOGLE_SHEET_TAB || "Tasks",
+    googleScheduleTab: process.env.GOOGLE_SCHEDULE_TAB || "ScheduleItems",
     appTimeZone: process.env.APP_TIME_ZONE || "Asia/Tokyo",
   };
 }

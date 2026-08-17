@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { InMemoryTaskRepository } from "@/lib/tasks/in-memory-repository";
+import { InMemoryScheduleRepository } from "@/lib/schedule/in-memory-repository";
 
 describe("TaskRepository contract", () => {
   it("stores the private category in the same task repository", async () => {
@@ -26,5 +27,17 @@ describe("TaskRepository contract", () => {
     const created = await repository.create({ title: "競合", dueDate: "2026-07-27", isUrgent: false, isImportant: false });
     await expect(repository.update(created.id, { title: "先に更新", version: created.version })).resolves.toMatchObject({ version: 2 });
     await expect(repository.update(created.id, { title: "古い更新", version: created.version })).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+});
+
+describe("ScheduleRepository contract", () => {
+  it("creates, moves, lists, and removes a schedule item", async () => {
+    const repository = new InMemoryScheduleRepository();
+    const created = await repository.create({ scheduleDate: "2026-08-17", startTime: "09:00", endTime: "10:00", itemType: "event", title: "会議" });
+    expect(await repository.list("2026-08-17")).toHaveLength(1);
+    const moved = await repository.update(created.id, { startTime: "10:00", endTime: "11:00", version: created.version });
+    expect(moved.startTime).toBe("10:00");
+    await repository.remove(moved.id, moved.version);
+    expect(await repository.list("2026-08-17")).toEqual([]);
   });
 });

@@ -41,10 +41,13 @@ node scripts/generate-passphrase-hash.mjs '16文字以上のパスフレーズ'
 - `/private`: プライベートカテゴリのタスク一覧
 - `/login`: パスフレーズ認証
 - `/api/tasks`: タスクAPI
+- `/api/schedule`: 今日のスケジュールAPI
 - `lib/tasks`: 優先度・日付・集計のドメインロジック
 - `lib/sheets`: Google Sheets Repositoryと行変換
 
 タスク作成時にカテゴリ（通常／プライベート）を選択できます。カテゴリは同じTasks表の`category`列で管理され、プライベートタスクもTODO ALL・今日まで・マトリクス・今日の段取りなどの通常画面に表示されます。
+
+「今日の段取り」では、タスクを時間軸へ配置でき、昼食・会議などの自由予定も追加できます。タスクはTasks表、自由予定は同じスプレッドシートの`ScheduleItems`タブで管理します。
 
 ## デプロイ
 

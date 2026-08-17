@@ -12,6 +12,12 @@ id | title | due_date | is_urgent | is_important | priority | status | completed
 
 既存のA:O形式で運用している場合は、P1に`category`を追加してください。既存タスクのP列は空欄のままで問題ありません（アプリが`default`として扱います）。
 
+同じスプレッドシート内に`ScheduleItems`タブを追加し、1行目へ次を入力します。予定の追加・編集・削除はこのタブへ保存され、Tasks表は変更しません。
+
+```text
+id | schedule_date | start_time | end_time | item_type | task_id | title | comment | sort_order | is_deleted | created_at | updated_at | version
+```
+
 ## 2. サービスアカウント
 
 1. Google Cloudでプロジェクトを作成する。
@@ -30,6 +36,7 @@ JSON鍵、メールアドレス、スプレッドシートIDをチャット、Gi
 - `GOOGLE_PRIVATE_KEY`（改行は`\\n`として登録可能）
 - `GOOGLE_SHEET_ID`
 - `GOOGLE_SHEET_TAB=Tasks`
+- `GOOGLE_SCHEDULE_TAB=ScheduleItems`
 - `APP_TIME_ZONE=Asia/Tokyo`
 
 Previewは開発用ID、Productionは本番用IDを使います。同じIDを設定しないでください。

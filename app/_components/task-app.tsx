@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { DndContext, DragEndEvent, DragOverlay, KeyboardSensor, PointerSensor, TouchSensor, closestCenter, pointerWithin, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
+import { DndContext, DragEndEvent, DragOverlay, KeyboardSensor, PointerSensor, TouchSensor, closestCenter, pointerWithin, useDraggable, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { Priority, Task, TaskCategory } from "@/types/task";
+import type { CreateScheduleItemInput, ScheduleItem } from "@/types/schedule";
 import { calculatePriority, PRIORITY_LABELS } from "@/lib/tasks/priority";
 import { dashboardMetrics, dueDateSort, prioritySort, priorityTasks } from "@/lib/tasks/selectors";
 import { overdueDays, todayInTokyo } from "@/lib/tasks/date";
@@ -195,7 +196,7 @@ export default function TaskApp({ view }: { view: View }) {
           {view === "private" && <AllView active={privateActive} completed={privateCompleted} showCompleted={showCompleted} setShowCompleted={setShowCompleted} sort={sort} setSort={setSort} onEdit={openTask} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onRestore={(task) => patchTask(task, { status: "todo" }, "タスクを復元しました。")} onDelete={deleteTask} onAdd={() => openNewTask({ ...PRIORITY_DEFAULTS.P4, category: "private" })} heading="プライベートタスク" eyebrow="PRIVATE TASKS" emptyText="プライベートタスクはありません。" />}
           {view === "due" && <DueView tasks={tasks} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onEdit={openTask} />}
           {view === "matrix" && <MatrixView tasks={active} onMove={(task, isUrgent, isImportant) => patchTask(task, { isUrgent, isImportant }, "優先度マトリクスを更新しました。")} onEdit={openTask} onAdd={(priority) => openNewTask(PRIORITY_DEFAULTS[priority])} />}
-          {view === "plan" && <PlanningView tasks={tasks} onEdit={openTask} onPlanChange={savePlan} onAdd={() => openNewTask(PRIORITY_DEFAULTS.P4)} />}
+          {view === "plan" && <PlanningView tasks={tasks} onEdit={openTask} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onPlanChange={savePlan} onAdd={() => openNewTask(PRIORITY_DEFAULTS.P4)} />}
         </>}
       </main>
       {editing && <TaskModal task={editing.id ? editing : undefined} initialValues={editing.id ? undefined : newTaskDefaults} onClose={() => setEditing(null)} onSave={saveTask} onComplete={editing.id ? (task) => patchTask(task, { status: task.status === "done" ? "todo" : "done" }, task.status === "done" ? "タスクを未完了に戻しました。" : "タスクを完了しました。") : undefined} />}
@@ -236,13 +237,19 @@ function DueSection({ title, subtitle, tasks, onComplete, onEdit }: { title: str
 
 const PLAN_DROPZONE_ID = "today-plan-dropzone";
 const UNPLANNED_DROPZONE_ID = "unplanned-dropzone";
+const SCHEDULE_SLOT_PREFIX = "schedule-slot:";
+const SCHEDULE_ITEM_PREFIX = "schedule-item:";
+const SCHEDULE_START_MINUTES = 7 * 60;
+const SCHEDULE_END_MINUTES = 22 * 60;
+const SCHEDULE_SLOT_MINUTES = 30;
+const SCHEDULE_SLOTS = Array.from({ length: (SCHEDULE_END_MINUTES - SCHEDULE_START_MINUTES) / SCHEDULE_SLOT_MINUTES }, (_, index) => minutesToTime(SCHEDULE_START_MINUTES + index * SCHEDULE_SLOT_MINUTES));
 
 function planCollisionDetection(args: Parameters<typeof pointerWithin>[0]) {
   const pointerCollisions = pointerWithin(args);
   return pointerCollisions.length > 0 ? pointerCollisions : closestCenter(args);
 }
 
-function PlanningView({ tasks, onEdit, onPlanChange, onAdd }: { tasks: Task[]; onEdit: (task: Task) => void; onPlanChange: (orderedTasks: Task[], removedTask?: Task) => Promise<void>; onAdd: () => void }) {
+function PlanningView({ tasks, onEdit, onComplete, onPlanChange, onAdd }: { tasks: Task[]; onEdit: (task: Task) => void; onComplete: (task: Task) => void; onPlanChange: (orderedTasks: Task[], removedTask?: Task) => Promise<void>; onAdd: () => void }) {
   const today = todayInTokyo();
   const activeTasks = tasks.filter((task) => !task.isDeleted && task.status === "todo");
   const initialPlannedIds = activeTasks
@@ -252,6 +259,11 @@ function PlanningView({ tasks, onEdit, onPlanChange, onAdd }: { tasks: Task[]; o
   const [plannedIds, setPlannedIds] = useState(initialPlannedIds);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [scheduleItems, setScheduleItems] = useState<ScheduleItem[]>([]);
+  const [scheduleLoading, setScheduleLoading] = useState(true);
+  const [scheduleSaving, setScheduleSaving] = useState(false);
+  const [scheduleMessage, setScheduleMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [scheduleEditor, setScheduleEditor] = useState<{ item?: ScheduleItem; task?: Task; startTime?: string } | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 120, tolerance: 5 } }),
@@ -266,11 +278,83 @@ function PlanningView({ tasks, onEdit, onPlanChange, onAdd }: { tasks: Task[]; o
   }, [tasks, today, saving]);
   /* eslint-enable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
 
+  const loadSchedule = useCallback(async () => {
+    setScheduleLoading(true);
+    try {
+      const response = await fetch(`/api/schedule?date=${today}`, { cache: "no-store" });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.error?.message ?? "今日のスケジュールを読み込めませんでした。");
+      setScheduleItems(body.data ?? []);
+    } catch (error) {
+      setScheduleMessage({ type: "error", text: error instanceof Error ? error.message : "今日のスケジュールを読み込めませんでした。" });
+    } finally {
+      setScheduleLoading(false);
+    }
+  }, [today, setScheduleItems, setScheduleLoading, setScheduleMessage]);
+
+  // Schedule data is scoped to this page/date and loaded independently from task data.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void loadSchedule(); }, [loadSchedule]);
+
   const taskById = new Map(activeTasks.map((task) => [task.id, task]));
   const planned = plannedIds.map((id) => taskById.get(id)).filter((task): task is Task => Boolean(task));
   const plannedSet = new Set(planned.map((task) => task.id));
   const unplanned = activeTasks.filter((task) => !plannedSet.has(task.id));
   const draggingTask = draggingId ? taskById.get(draggingId) : undefined;
+
+  async function saveSchedule(input: CreateScheduleItemInput, item?: ScheduleItem) {
+    setScheduleSaving(true);
+    setScheduleMessage(null);
+    try {
+      const response = await fetch(item ? `/api/schedule/${item.id}` : "/api/schedule", {
+        method: item ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(item ? { ...input, version: item.version } : input),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.error?.message ?? "予定を保存できませんでした。");
+      const saved = body.data as ScheduleItem;
+      setScheduleItems((current) => item ? current.map((entry) => entry.id === item.id ? saved : entry) : [...current, saved]);
+      setScheduleEditor(null);
+      setScheduleMessage({ type: "success", text: item ? "予定を更新しました。" : "予定を追加しました。" });
+    } catch (error) {
+      setScheduleMessage({ type: "error", text: error instanceof Error ? error.message : "予定を保存できませんでした。" });
+      throw error;
+    } finally {
+      setScheduleSaving(false);
+    }
+  }
+
+  async function deleteSchedule(item: ScheduleItem) {
+    if (!window.confirm(`「${item.title}」をスケジュールから外しますか？`)) return;
+    setScheduleSaving(true);
+    try {
+      const response = await fetch(`/api/schedule/${item.id}?version=${item.version}`, { method: "DELETE" });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.error?.message ?? "予定を削除できませんでした。");
+      setScheduleItems((current) => current.filter((entry) => entry.id !== item.id));
+      setScheduleEditor(null);
+      setScheduleMessage({ type: "success", text: "予定をスケジュールから外しました。" });
+    } catch (error) {
+      setScheduleMessage({ type: "error", text: error instanceof Error ? error.message : "予定を削除できませんでした。" });
+      await loadSchedule();
+    } finally {
+      setScheduleSaving(false);
+    }
+  }
+
+  async function scheduleTask(task: Task, startTime: string) {
+    const existing = scheduleItems.find((item) => item.taskId === task.id);
+    const duration = existing ? Math.max(SCHEDULE_SLOT_MINUTES, toMinutes(existing.endTime) - toMinutes(existing.startTime)) : 60;
+    const endTime = minutesToTime(Math.min(toMinutes(startTime) + duration, 23 * 60 + 30));
+    await saveSchedule({ scheduleDate: today, startTime, endTime, itemType: "task", taskId: task.id, title: task.title, comment: existing?.comment || task.comment }, existing);
+  }
+
+  async function moveSchedule(item: ScheduleItem, startTime: string) {
+    const duration = Math.max(SCHEDULE_SLOT_MINUTES, toMinutes(item.endTime) - toMinutes(item.startTime));
+    const endTime = minutesToTime(Math.min(toMinutes(startTime) + duration, 23 * 60 + 30));
+    await saveSchedule({ scheduleDate: item.scheduleDate, startTime, endTime, itemType: item.itemType, taskId: item.taskId, title: item.title, comment: item.comment }, item);
+  }
 
   async function persistOrder(nextIds: string[], removedTask?: Task) {
     if (saving) return;
@@ -289,6 +373,17 @@ function PlanningView({ tasks, onEdit, onPlanChange, onAdd }: { tasks: Task[]; o
     if (!over) return;
     const activeId = String(active.id);
     const overId = String(over.id);
+    if (overId.startsWith(SCHEDULE_SLOT_PREFIX)) {
+      const startTime = overId.slice(SCHEDULE_SLOT_PREFIX.length);
+      if (activeId.startsWith(SCHEDULE_ITEM_PREFIX)) {
+        const item = scheduleItems.find((entry) => entry.id === activeId.slice(SCHEDULE_ITEM_PREFIX.length));
+        if (item) void moveSchedule(item, startTime);
+      } else {
+        const task = taskById.get(activeId);
+        if (task) void scheduleTask(task, startTime);
+      }
+      return;
+    }
     const currentIndex = plannedIds.indexOf(activeId);
     const isPlanned = currentIndex >= 0;
     const activeTask = taskById.get(activeId);
@@ -318,7 +413,8 @@ function PlanningView({ tasks, onEdit, onPlanChange, onAdd }: { tasks: Task[]; o
 
   return (
     <div className="content-wrap planning-page">
-      <PageHeading eyebrow="TODAY / PLAN" title="今日の段取り" description={`${planned.length}件の実行順を決める。`} action={<button className="primary-button" onClick={onAdd}>＋ タスクを追加</button>} />
+      <PageHeading eyebrow="TODAY / PLAN" title="今日の段取り" description={`${planned.length}件の実行順と、今日の時間割を決める。`} action={<div className="planning-heading-actions"><button className="primary-button" onClick={onAdd}>＋ タスクを追加</button><button className="secondary-button" onClick={() => setScheduleEditor({ startTime: "09:00" })}>＋ 予定を追加</button></div>} />
+      {scheduleMessage && <div className={`schedule-message ${scheduleMessage.type}`} role="status">{scheduleMessage.text}<button type="button" onClick={() => setScheduleMessage(null)} aria-label="スケジュール通知を閉じる">×</button></div>}
       <DndContext sensors={sensors} collisionDetection={planCollisionDetection} onDragStart={({ active }) => setDraggingId(String(active.id))} onDragCancel={() => setDraggingId(null)} onDragEnd={handleDragEnd}>
         <PlanningDropzones
           unplanned={unplanned}
@@ -328,15 +424,18 @@ function PlanningView({ tasks, onEdit, onPlanChange, onAdd }: { tasks: Task[]; o
           onMoveUp={(index) => moveByButton(index, -1)}
           onMoveDown={(index) => moveByButton(index, 1)}
           onRemove={(task) => persistOrder(plannedIds.filter((id) => id !== task.id), task)}
+          onSchedule={(task) => setScheduleEditor({ task, startTime: "09:00" })}
         />
+        <ScheduleTimeline items={scheduleItems} tasks={tasks} loading={scheduleLoading} saving={scheduleSaving} onAdd={() => setScheduleEditor({ startTime: "09:00" })} onEdit={(item) => setScheduleEditor({ item, task: item.taskId ? tasks.find((task) => task.id === item.taskId) : undefined })} onDelete={deleteSchedule} onComplete={onComplete} />
         <DragOverlay>{draggingTask ? <PlanTaskPreview task={draggingTask} /> : null}</DragOverlay>
       </DndContext>
-      <p className="planning-hint">タスクの左端をドラッグして追加・並び替えできます。スマホでは上下ボタンも使えます。</p>
+      <p className="planning-hint">タスクを時間帯へドラッグすると60分の予定になります。スマホでは「時間割へ追加」ボタンも使えます。</p>
+      {scheduleEditor && <ScheduleModal key={scheduleEditor.item?.id ?? scheduleEditor.task?.id ?? "new-event"} editor={scheduleEditor} onClose={() => setScheduleEditor(null)} onSave={saveSchedule} onDelete={deleteSchedule} saving={scheduleSaving} />}
     </div>
   );
 }
 
-function PlanningDropzones({ unplanned, planned, disabled, onEdit, onMoveUp, onMoveDown, onRemove }: { unplanned: Task[]; planned: Task[]; disabled: boolean; onEdit: (task: Task) => void; onMoveUp: (index: number) => void; onMoveDown: (index: number) => void; onRemove: (task: Task) => void }) {
+function PlanningDropzones({ unplanned, planned, disabled, onEdit, onMoveUp, onMoveDown, onRemove, onSchedule }: { unplanned: Task[]; planned: Task[]; disabled: boolean; onEdit: (task: Task) => void; onMoveUp: (index: number) => void; onMoveDown: (index: number) => void; onRemove: (task: Task) => void; onSchedule: (task: Task) => void }) {
   const { setNodeRef: setPlanDropRef, isOver: isOverPlan } = useDroppable({ id: PLAN_DROPZONE_ID });
   const { setNodeRef: setUnplannedDropRef, isOver: isOverUnplanned } = useDroppable({ id: UNPLANNED_DROPZONE_ID });
   return (
@@ -345,7 +444,7 @@ function PlanningDropzones({ unplanned, planned, disabled, onEdit, onMoveUp, onM
         <div className="planning-panel-header"><div><p className="eyebrow">SOURCE TASKS</p><h2 id="unplanned-title">未計画タスク</h2></div><span className="count-pill">{unplanned.length}件</span></div>
         <div id={UNPLANNED_DROPZONE_ID} ref={setUnplannedDropRef} className={`planning-dropzone ${isOverUnplanned ? "drop-active" : ""}`}>
           <SortableContext items={unplanned.map((task) => task.id)} strategy={verticalListSortingStrategy}>
-            {unplanned.length === 0 ? <p className="planning-empty">未計画のタスクはありません。</p> : unplanned.map((task) => <PlanTaskCard key={task.id} task={task} disabled={disabled} onEdit={onEdit} />)}
+            {unplanned.length === 0 ? <p className="planning-empty">未計画のタスクはありません。</p> : unplanned.map((task) => <PlanTaskCard key={task.id} task={task} disabled={disabled} onEdit={onEdit} onSchedule={() => onSchedule(task)} />)}
           </SortableContext>
         </div>
       </section>
@@ -353,7 +452,7 @@ function PlanningDropzones({ unplanned, planned, disabled, onEdit, onMoveUp, onM
         <div className="planning-panel-header"><div><p className="eyebrow">EXECUTION ORDER</p><h2 id="planned-title">今日の実行順</h2></div><span className="count-pill">{planned.length}件</span></div>
         <div className="planning-dropzone planning-queue">
           <SortableContext items={planned.map((task) => task.id)} strategy={verticalListSortingStrategy}>
-            {planned.length === 0 ? <p className="planning-empty">ここへタスクをドラッグすると、今日の段取りに追加されます。</p> : planned.map((task, index) => <PlanTaskCard key={task.id} task={task} planned disabled={disabled} index={index} total={planned.length} onEdit={onEdit} onMoveUp={() => onMoveUp(index)} onMoveDown={() => onMoveDown(index)} onRemove={() => onRemove(task)} />)}
+            {planned.length === 0 ? <p className="planning-empty">ここへタスクをドラッグすると、今日の段取りに追加されます。</p> : planned.map((task, index) => <PlanTaskCard key={task.id} task={task} planned disabled={disabled} index={index} total={planned.length} onEdit={onEdit} onMoveUp={() => onMoveUp(index)} onMoveDown={() => onMoveDown(index)} onRemove={() => onRemove(task)} onSchedule={() => onSchedule(task)} />)}
           </SortableContext>
         </div>
       </section>
@@ -361,7 +460,7 @@ function PlanningDropzones({ unplanned, planned, disabled, onEdit, onMoveUp, onM
   );
 }
 
-function PlanTaskCard({ task, planned = false, disabled = false, index = 0, total = 0, onEdit, onMoveUp, onMoveDown, onRemove }: { task: Task; planned?: boolean; disabled?: boolean; index?: number; total?: number; onEdit: (task: Task) => void; onMoveUp?: () => void; onMoveDown?: () => void; onRemove?: () => void }) {
+function PlanTaskCard({ task, planned = false, disabled = false, index = 0, total = 0, onEdit, onMoveUp, onMoveDown, onRemove, onSchedule }: { task: Task; planned?: boolean; disabled?: boolean; index?: number; total?: number; onEdit: (task: Task) => void; onMoveUp?: () => void; onMoveDown?: () => void; onRemove?: () => void; onSchedule?: () => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.35 : 1 };
   return (
@@ -372,13 +471,100 @@ function PlanTaskCard({ task, planned = false, disabled = false, index = 0, tota
         <span className="plan-task-meta"><b className={`priority-text ${task.priority.toLowerCase()}`}>{task.priority}</b>{task.dueDate}</span>
         {task.comment && <small title={task.comment}>{truncateText(task.comment, 52)}</small>}
       </button>
-      {planned && <div className="plan-task-actions"><button type="button" className="plan-order-button" onClick={onMoveUp} disabled={disabled || index === 0} aria-label={`${task.title}を上へ移動`}>↑</button><button type="button" className="plan-order-button" onClick={onMoveDown} disabled={disabled || index === total - 1} aria-label={`${task.title}を下へ移動`}>↓</button><button type="button" className="plan-remove-button" onClick={onRemove} disabled={disabled} aria-label={`${task.title}を段取りから外す`}>×</button></div>}
+      <div className="plan-task-actions"><button type="button" className="plan-schedule-button" onClick={onSchedule} disabled={disabled} aria-label={`${task.title}を時間割へ追加`}>◷</button>{planned && <><button type="button" className="plan-order-button" onClick={onMoveUp} disabled={disabled || index === 0} aria-label={`${task.title}を上へ移動`}>↑</button><button type="button" className="plan-order-button" onClick={onMoveDown} disabled={disabled || index === total - 1} aria-label={`${task.title}を下へ移動`}>↓</button><button type="button" className="plan-remove-button" onClick={onRemove} disabled={disabled} aria-label={`${task.title}を段取りから外す`}>×</button></>}</div>
     </article>
   );
 }
 
 function PlanTaskPreview({ task }: { task: Task }) {
   return <div className="plan-task-card planned drag-preview"><span className="plan-drag-handle">⠿</span><div className="plan-task-content"><strong>{truncateText(task.title, 34)}</strong><span className="plan-task-meta"><b className={`priority-text ${task.priority.toLowerCase()}`}>{task.priority}</b>{task.dueDate}</span></div></div>;
+}
+
+function ScheduleTimeline({ items, tasks, loading, saving, onAdd, onEdit, onDelete, onComplete }: { items: ScheduleItem[]; tasks: Task[]; loading: boolean; saving: boolean; onAdd: () => void; onEdit: (item: ScheduleItem) => void; onDelete: (item: ScheduleItem) => void; onComplete: (task: Task) => void }) {
+  const taskById = new Map(tasks.map((task) => [task.id, task]));
+  return (
+    <section className="schedule-panel" aria-labelledby="schedule-title">
+      <div className="schedule-panel-header"><div><p className="eyebrow">TIME BLOCKS</p><h2 id="schedule-title">今日のスケジュール</h2><p className="muted">タスクと自由予定を同じ時間軸で見る。</p></div><button type="button" className="secondary-button" onClick={onAdd}>＋ 予定を追加</button></div>
+      {loading ? <div className="schedule-loading">時間割を読み込んでいます…</div> : <div className="schedule-grid" style={{ gridTemplateRows: `repeat(${SCHEDULE_SLOTS.length}, 44px)` }}>
+        {SCHEDULE_SLOTS.map((time) => <ScheduleSlot key={time} time={time} />)}
+        {items.map((item) => {
+          const startIndex = Math.floor((toMinutes(item.startTime) - SCHEDULE_START_MINUTES) / SCHEDULE_SLOT_MINUTES);
+          const endIndex = Math.ceil((toMinutes(item.endTime) - SCHEDULE_START_MINUTES) / SCHEDULE_SLOT_MINUTES);
+          if (startIndex < 0 || startIndex >= SCHEDULE_SLOTS.length) return null;
+          const task = item.taskId ? taskById.get(item.taskId) : undefined;
+          const displayTitle = task?.title ?? item.title;
+          return <ScheduleBlock key={item.id} item={item} title={displayTitle} task={task} startIndex={startIndex} span={Math.max(1, Math.min(SCHEDULE_SLOTS.length - startIndex, endIndex - startIndex))} disabled={saving} onEdit={() => onEdit(item)} onDelete={() => onDelete(item)} onComplete={onComplete} />;
+        })}
+      </div>}
+      {!loading && items.length === 0 && <p className="schedule-empty">予定はまだありません。タスクをここへドラッグするか、自由予定を追加できます。</p>}
+    </section>
+  );
+}
+
+function ScheduleSlot({ time }: { time: string }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `${SCHEDULE_SLOT_PREFIX}${time}` });
+  return <div ref={setNodeRef} className={`schedule-slot ${isOver ? "drop-active" : ""}`}><span>{time.endsWith(":00") ? time : ""}</span></div>;
+}
+
+function ScheduleBlock({ item, title, task, startIndex, span, disabled, onEdit, onDelete, onComplete }: { item: ScheduleItem; title: string; task?: Task; startIndex: number; span: number; disabled: boolean; onEdit: () => void; onDelete: () => void; onComplete: (task: Task) => void }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `${SCHEDULE_ITEM_PREFIX}${item.id}`, disabled });
+  const style = { gridRow: `${startIndex + 1} / span ${span}`, transform: CSS.Transform.toString(transform), opacity: isDragging ? 0.35 : 1 };
+  return <article ref={setNodeRef} style={style} className={`schedule-block ${item.itemType === "event" ? "event" : "task"}`} {...attributes} {...listeners} onClick={onEdit} title="ドラッグして時間を変更できます。クリックで編集します。">
+    <div className="schedule-block-main"><span>{item.startTime}–{item.endTime}</span><strong>{truncateText(title, 38)}</strong>{item.comment && <small>{truncateText(item.comment, 52)}</small>}</div>
+    <div className="schedule-block-actions"><button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onEdit(); }} aria-label={`${title}の予定を編集`}>✎</button>{task && <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onComplete(task); }} aria-label={`${title}を完了にする`}>○</button>}<button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onDelete(); }} aria-label={`${title}の予定を削除`}>×</button></div>
+  </article>;
+}
+
+function ScheduleModal({ editor, onClose, onSave, onDelete, saving }: { editor: { item?: ScheduleItem; task?: Task; startTime?: string }; onClose: () => void; onSave: (input: CreateScheduleItemInput, item?: ScheduleItem) => Promise<void>; onDelete: (item: ScheduleItem) => Promise<void>; saving: boolean }) {
+  const item = editor.item;
+  const task = editor.task;
+  const isTask = item?.itemType === "task" || Boolean(task);
+  const [title, setTitle] = useState(item?.title ?? task?.title ?? "");
+  const [comment, setComment] = useState(item?.comment ?? "");
+  const [startTime, setStartTime] = useState(item?.startTime ?? editor.startTime ?? "09:00");
+  const [endTime, setEndTime] = useState(item?.endTime ?? addMinutesToTime(editor.startTime ?? "09:00", 60));
+  const [error, setError] = useState("");
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    try {
+      await onSave({ scheduleDate: item?.scheduleDate ?? todayInTokyo(), startTime, endTime, itemType: isTask ? "task" : "event", taskId: isTask ? (item?.taskId ?? task?.id ?? null) : null, title, comment }, item);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "予定を保存できませんでした。");
+    }
+  }
+
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}>
+    <section className="modal schedule-modal" role="dialog" aria-modal="true" aria-labelledby="schedule-modal-title">
+      <div className="modal-header"><div><p className="eyebrow">{isTask ? "TASK BLOCK" : "FREE EVENT"}</p><h2 id="schedule-modal-title">{item ? "予定を編集" : isTask ? "タスクを時間割へ追加" : "自由予定を追加"}</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="閉じる">×</button></div>
+      <form onSubmit={submit}>
+        <label htmlFor="schedule-title">予定名</label>
+        <input id="schedule-title" aria-label="予定名" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={200} required disabled={isTask} autoFocus={!isTask} />
+        {isTask && <p className="schedule-linked-task">Tasks表のタスクと連動しています。</p>}
+        <div className="schedule-time-fields"><div><label htmlFor="schedule-start">開始</label><input id="schedule-start" type="time" value={startTime} onChange={(event) => setStartTime(event.target.value)} required /></div><div><label htmlFor="schedule-end">終了</label><input id="schedule-end" type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} required /></div></div>
+        <label htmlFor="schedule-comment">メモ</label>
+        <textarea id="schedule-comment" value={comment} onChange={(event) => setComment(event.target.value)} maxLength={2000} rows={3} placeholder="会議のURL、持ち物、補足など" />
+        {error && <p className="field-error" role="alert">{error}</p>}
+        <div className="modal-actions">{item && <button type="button" className="complete-button schedule-delete-button" onClick={() => void onDelete(item)} disabled={saving}>スケジュールから外す</button>}<button type="button" className="secondary-button" onClick={onClose} disabled={saving}>キャンセル</button><button type="submit" className="primary-button" disabled={saving}>{saving ? "保存中…" : "予定を保存"}</button></div>
+      </form>
+    </section>
+  </div>;
+}
+
+function minutesToTime(minutes: number): string {
+  const normalized = Math.max(0, Math.min(23 * 60 + 59, minutes));
+  return `${String(Math.floor(normalized / 60)).padStart(2, "0")}:${String(normalized % 60).padStart(2, "0")}`;
+}
+
+function addMinutesToTime(time: string, amount: number): string {
+  const [hours, minutes] = time.split(":").map(Number);
+  return minutesToTime(hours * 60 + minutes + amount);
+}
+
+function toMinutes(time: string): number {
+  const [hours, minutes] = time.split(":").map(Number);
+  return hours * 60 + minutes;
 }
 
 const MATRIX_TITLE_MAX_LENGTH = 20;

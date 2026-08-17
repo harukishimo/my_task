@@ -100,6 +100,36 @@ test.describe("authentication boundary", () => {
     await expect(page.getByText(normalTitle)).toHaveCount(0);
   });
 
+  test("combines planned tasks with free events in today's schedule", async ({ page }) => {
+    const taskTitle = `Scheduled task ${test.info().project.name} ${randomUUID()}`;
+    await page.goto("/login");
+    await page.getByLabel("パスフレーズ").fill("test-passphrase-long");
+    await page.getByRole("button", { name: "ロックを解除" }).click();
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await page.getByRole("button", { name: /タスクを追加/ }).first().click();
+    await page.getByLabel("タスク名").fill(taskTitle);
+    await page.getByLabel("期日").fill("2026-08-20");
+    await page.getByRole("button", { name: "保存する" }).click();
+    await page.getByRole("link", { name: "今日の段取り" }).first().click();
+    await expect(page.getByRole("heading", { name: "今日のスケジュール" })).toBeVisible();
+    await page.getByRole("button", { name: `${taskTitle}を時間割へ追加` }).click();
+    await expect(page.getByRole("heading", { name: "タスクを時間割へ追加" })).toBeVisible();
+    await page.getByLabel("開始").fill("09:00");
+    await page.getByLabel("終了").fill("10:00");
+    await page.getByRole("button", { name: "予定を保存" }).click();
+    await expect(page.locator(".schedule-block.task").filter({ hasText: "Scheduled task" })).toBeVisible();
+
+    await page.getByRole("button", { name: "＋ 予定を追加" }).first().click();
+    await expect(page.getByRole("heading", { name: "自由予定を追加" })).toBeVisible();
+    await page.getByLabel("予定名").fill("昼食");
+    await page.getByLabel("開始").fill("12:00");
+    await page.getByLabel("終了").fill("13:00");
+    await page.getByLabel("メモ").fill("外で食べる");
+    await page.getByRole("button", { name: "予定を保存" }).click();
+    await expect(page.locator(".schedule-block.event").filter({ hasText: "昼食" })).toBeVisible();
+    await expect(page.locator(".schedule-block.event").filter({ hasText: "外で食べる" })).toBeVisible();
+  });
+
   test("builds and persists today's execution order", async ({ page }) => {
     test.skip(test.info().project.name === "mobile", "ドラッグ操作はPC幅で検証する");
     const firstTitle = `Plan first ${randomUUID()}`;
@@ -164,7 +194,7 @@ test.describe("authentication boundary", () => {
     await page.getByRole("link", { name: "今日の段取り" }).last().click();
     await expect(page.getByRole("heading", { name: "今日の段取り" })).toBeVisible();
     await expect(page.locator(".mobile-nav-link")).toHaveCount(6);
-    await expect(page.getByText("スマホでは上下ボタンも使えます。", { exact: false })).toBeVisible();
+    await expect(page.getByText("スマホでは「時間割へ追加」ボタンも使えます。", { exact: false })).toBeVisible();
   });
 
   test("collapses and expands the desktop sidebar", async ({ page }) => {
