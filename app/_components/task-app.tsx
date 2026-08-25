@@ -23,6 +23,13 @@ const PRIORITY_DEFAULTS: Record<Priority, NewTaskDefaults> = {
   P4: { isUrgent: false, isImportant: false },
 };
 
+const MATRIX_QUADRANTS: Array<{ priority: Priority; urgent: boolean; important: boolean; label: string; sub: string }> = [
+  { priority: "P1", urgent: true, important: true, label: "今すぐやる", sub: "緊急 × 重要" },
+  { priority: "P2", urgent: false, important: true, label: "予定する", sub: "非緊急 × 重要" },
+  { priority: "P3", urgent: true, important: false, label: "手早くやる", sub: "緊急 × 非重要" },
+  { priority: "P4", urgent: false, important: false, label: "あとで", sub: "非緊急 × 非重要" },
+];
+
 const navItems: Array<{ href: string; view: View; label: string; icon: string }> = [
   { href: "/dashboard", view: "dashboard", label: "ダッシュボード", icon: "⌂" },
   { href: "/all", view: "all", label: "TODO ALL", icon: "☷" },
@@ -389,7 +396,8 @@ function PlanningView({ tasks, onEdit, onComplete, onPlanChange, onAdd }: { task
     const activeTask = taskById.get(activeId);
     if (!activeTask) return;
 
-    if (overId === UNPLANNED_DROPZONE_ID && isPlanned) {
+    const unplannedIds = new Set(unplanned.map((task) => task.id));
+    if (isPlanned && (overId === UNPLANNED_DROPZONE_ID || unplannedIds.has(overId))) {
       persistOrder(plannedIds.filter((id) => id !== activeId), activeTask);
       return;
     }
@@ -440,13 +448,29 @@ function PlanningDropzones({ unplanned, planned, disabled, onEdit, onMoveUp, onM
   const { setNodeRef: setUnplannedDropRef, isOver: isOverUnplanned } = useDroppable({ id: UNPLANNED_DROPZONE_ID });
   return (
     <div className="planning-layout">
-      <section className="planning-panel" aria-labelledby="unplanned-title">
+      <section id={UNPLANNED_DROPZONE_ID} ref={setUnplannedDropRef} className={`planning-panel planning-matrix-panel ${isOverUnplanned ? "drop-active" : ""}`} aria-labelledby="unplanned-title">
         <div className="planning-panel-header"><div><p className="eyebrow">SOURCE TASKS</p><h2 id="unplanned-title">未計画タスク</h2></div><span className="count-pill">{unplanned.length}件</span></div>
-        <div id={UNPLANNED_DROPZONE_ID} ref={setUnplannedDropRef} className={`planning-dropzone ${isOverUnplanned ? "drop-active" : ""}`}>
-          <SortableContext items={unplanned.map((task) => task.id)} strategy={verticalListSortingStrategy}>
-            {unplanned.length === 0 ? <p className="planning-empty">未計画のタスクはありません。</p> : unplanned.map((task) => <PlanTaskCard key={task.id} task={task} disabled={disabled} onEdit={onEdit} onSchedule={() => onSchedule(task)} />)}
-          </SortableContext>
-        </div>
+        <div className="matrix-legend planning-matrix-legend"><span>緊急度 <b>高 ↑</b></span><span>重要度 <b>高 →</b></span></div>
+        <SortableContext items={unplanned.map((task) => task.id)} strategy={verticalListSortingStrategy}>
+          <div className="matrix-grid planning-matrix-grid">
+            {MATRIX_QUADRANTS.map((quadrant) => {
+              const items = unplanned.filter((task) => task.priority === quadrant.priority);
+              return (
+                <section key={quadrant.priority} className={`quadrant quadrant-${quadrant.priority.toLowerCase()}`}>
+                  <div className="quadrant-heading">
+                    <div><span className="priority-badge">{quadrant.priority}</span><h2>{quadrant.label}</h2><p>{quadrant.sub}</p></div>
+                    <strong>{items.length}</strong>
+                  </div>
+                  {items.length === 0 ? <p className="quadrant-empty">未計画のタスクはありません</p> : (
+                    <div className="quadrant-tasks">
+                      {items.map((task) => <PlanTaskCard key={task.id} task={task} disabled={disabled} onEdit={onEdit} onSchedule={() => onSchedule(task)} />)}
+                    </div>
+                  )}
+                </section>
+              );
+            })}
+          </div>
+        </SortableContext>
       </section>
       <section id={PLAN_DROPZONE_ID} ref={setPlanDropRef} className={`planning-panel planning-queue-panel ${isOverPlan ? "drop-active" : ""}`} aria-labelledby="planned-title">
         <div className="planning-panel-header"><div><p className="eyebrow">EXECUTION ORDER</p><h2 id="planned-title">今日の実行順</h2></div><span className="count-pill">{planned.length}件</span></div>
@@ -625,12 +649,6 @@ function truncateText(value: string, maxLength: number) {
 }
 
 function MatrixView({ tasks, onMove, onEdit, onAdd }: { tasks: Task[]; onMove: (task: Task, isUrgent: boolean, isImportant: boolean) => void; onEdit: (task: Task) => void; onAdd: (priority: Priority) => void }) {
-  const quadrants: Array<{ priority: Priority; urgent: boolean; important: boolean; label: string; sub: string }> = [
-    { priority: "P1", urgent: true, important: true, label: "今すぐやる", sub: "緊急 × 重要" },
-    { priority: "P2", urgent: false, important: true, label: "予定する", sub: "非緊急 × 重要" },
-    { priority: "P3", urgent: true, important: false, label: "手早くやる", sub: "緊急 × 非重要" },
-    { priority: "P4", urgent: false, important: false, label: "あとで", sub: "非緊急 × 非重要" },
-  ];
   const [dragging, setDragging] = useState<string | null>(null);
 
   return (
@@ -638,7 +656,7 @@ function MatrixView({ tasks, onMove, onEdit, onAdd }: { tasks: Task[]; onMove: (
       <PageHeading eyebrow="URGENT / IMPORTANT" title="優先度マトリクス" description="タスクを置く場所で、次の一手を決める。" />
       <div className="matrix-legend"><span>緊急度 <b>高 ↑</b></span><span>重要度 <b>高 →</b></span></div>
       <div className="matrix-grid">
-        {quadrants.map((quadrant) => {
+        {MATRIX_QUADRANTS.map((quadrant) => {
           const items = tasks.filter((task) => task.priority === quadrant.priority);
           return (
             <section
@@ -665,7 +683,7 @@ function MatrixView({ tasks, onMove, onEdit, onAdd }: { tasks: Task[]; onMove: (
                         {task.comment && <span className="matrix-task-comment" title={task.comment}>{truncateText(task.comment, MATRIX_COMMENT_MAX_LENGTH)}</span>}
                       </button>
                       <div className="matrix-actions">
-                        <select aria-label={`${task.title}の移動先`} value={task.priority} onChange={(event) => { const target = quadrants.find((item) => item.priority === event.target.value); if (target) onMove(task, target.urgent, target.important); }}>
+                        <select aria-label={`${task.title}の移動先`} value={task.priority} onChange={(event) => { const target = MATRIX_QUADRANTS.find((item) => item.priority === event.target.value); if (target) onMove(task, target.urgent, target.important); }}>
                           <option value="P1">P1 今すぐやる</option><option value="P2">P2 予定する</option><option value="P3">P3 手早くやる</option><option value="P4">P4 あとで</option>
                         </select>
                         <button className="icon-button" onClick={() => onEdit(task)} aria-label={`${task.title}を編集`}>✎</button>

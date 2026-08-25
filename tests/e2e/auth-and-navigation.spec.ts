@@ -150,15 +150,21 @@ test.describe("authentication boundary", () => {
     await page.getByRole("link", { name: "今日の段取り" }).first().click();
     await expect(page).toHaveURL(/\/plan$/);
     await expect(page.getByRole("heading", { name: "今日の段取り" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "未計画タスク" })).toBeVisible();
+    for (const label of ["今すぐやる", "予定する", "手早くやる", "あとで"]) {
+      await expect(page.locator(".planning-matrix-panel").getByRole("heading", { name: label })).toBeVisible();
+    }
     await page.getByRole("button", { name: "＋ タスクを追加" }).click();
     await expect(page.getByRole("heading", { name: "新しいタスク" })).toBeVisible();
     await expect(page.getByLabel("緊急")).not.toBeChecked();
     await expect(page.getByLabel("重要")).not.toBeChecked();
     await page.getByRole("button", { name: "キャンセル" }).click();
     const planDropzone = page.locator("#today-plan-dropzone");
+    await planDropzone.scrollIntoViewIfNeeded();
 
     for (const title of [firstTitle, secondTitle]) {
       const sourceHandle = page.locator(`[data-plan-task-title="${title}"] .plan-drag-handle`);
+      await sourceHandle.scrollIntoViewIfNeeded();
       const sourceBox = await sourceHandle.boundingBox();
       const targetBox = await planDropzone.boundingBox();
       if (!sourceBox || !targetBox) throw new Error("段取りドラッグ対象の座標を取得できませんでした。");

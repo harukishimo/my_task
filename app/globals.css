@@ -115,8 +115,15 @@ a { color: inherit; text-decoration: none; }
   .modal-actions .secondary-button, .modal-actions .primary-button { width: 100%; }
 }
 
-.planning-layout { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 16px; align-items: start; }
+.planning-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(280px, .9fr); gap: 16px; align-items: start; }
 .planning-panel { min-width: 0; padding: 21px; border: 1px solid var(--line); border-radius: 15px; background: var(--surface); box-shadow: 0 5px 20px rgba(32, 50, 53, .025); }
+.planning-matrix-legend { margin: 0 0 14px; }
+.planning-matrix-grid { gap: 10px; }
+.planning-matrix-panel .quadrant { min-height: 168px; padding: 14px; }
+.planning-matrix-panel .quadrant-empty { margin: 28px 0 0; }
+.planning-matrix-panel .plan-task-card { margin: 0; }
+.planning-matrix-panel .quadrant-heading h2 { font-size: 16px; }
+.planning-matrix-panel .quadrant-heading > strong { font-size: 22px; }
 .planning-queue-panel { background: #f7fbfa; }
 .planning-panel-header { display: flex; align-items: start; justify-content: space-between; gap: 12px; margin-bottom: 15px; }
 .planning-panel-header h2 { margin: 6px 0 0; font-size: 18px; }
