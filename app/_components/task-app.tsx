@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DndContext, DragEndEvent, DragOverlay, KeyboardSensor, PointerSensor, TouchSensor, closestCenter, pointerWithin, useDraggable, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
-import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { Priority, Task, TaskCategory } from "@/types/task";
 import type { CreateScheduleItemInput, ScheduleItem } from "@/types/schedule";
@@ -131,33 +131,6 @@ export default function TaskApp({ view }: { view: View }) {
     }
   }
 
-  async function savePlan(orderedTasks: Task[], removedTask?: Task) {
-    const today = todayInTokyo();
-    const operations = [
-      ...orderedTasks.map((task, index) => ({ task, planDate: today, planOrder: index + 1 })),
-      ...(removedTask ? [{ task: removedTask, planDate: null, planOrder: null }] : []),
-    ];
-    if (operations.length === 0) return;
-    mutationVersion.current += 1;
-    try {
-      const results = await Promise.all(operations.map(async ({ task, planDate, planOrder }) => {
-        const response = await fetch(`/api/tasks/${task.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ planDate, planOrder, version: task.version }),
-        });
-        const body = await response.json().catch(() => null);
-        if (!response.ok) throw new Error(body?.error?.message ?? "段取りを保存できませんでした。");
-        return body.data as Task;
-      }));
-      setTasks((current) => current.map((task) => results.find((result) => result.id === task.id) ?? task));
-      setNotice({ type: "success", text: removedTask ? "段取りを更新しました。" : "段取りの順番を保存しました。" });
-    } catch (error) {
-      setNotice({ type: "error", text: error instanceof Error ? error.message : "段取りを保存できませんでした。" });
-      await loadTasks();
-    }
-  }
-
   async function deleteTask(task: Task) {
     if (!window.confirm(`「${task.title}」を削除しますか？`)) return;
     mutationVersion.current += 1;
@@ -203,7 +176,7 @@ export default function TaskApp({ view }: { view: View }) {
           {view === "private" && <AllView active={privateActive} completed={privateCompleted} showCompleted={showCompleted} setShowCompleted={setShowCompleted} sort={sort} setSort={setSort} onEdit={openTask} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onRestore={(task) => patchTask(task, { status: "todo" }, "タスクを復元しました。")} onDelete={deleteTask} onAdd={() => openNewTask({ ...PRIORITY_DEFAULTS.P4, category: "private" })} heading="プライベートタスク" eyebrow="PRIVATE TASKS" emptyText="プライベートタスクはありません。" />}
           {view === "due" && <DueView tasks={tasks} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onEdit={openTask} />}
           {view === "matrix" && <MatrixView tasks={active} onMove={(task, isUrgent, isImportant) => patchTask(task, { isUrgent, isImportant }, "優先度マトリクスを更新しました。")} onEdit={openTask} onAdd={(priority) => openNewTask(PRIORITY_DEFAULTS[priority])} />}
-          {view === "plan" && <PlanningView tasks={tasks} onEdit={openTask} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onPlanChange={savePlan} onAdd={() => openNewTask(PRIORITY_DEFAULTS.P4)} />}
+          {view === "plan" && <PlanningView tasks={tasks} onEdit={openTask} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onAdd={() => openNewTask(PRIORITY_DEFAULTS.P4)} />}
         </>}
       </main>
       {editing && <TaskModal task={editing.id ? editing : undefined} initialValues={editing.id ? undefined : newTaskDefaults} onClose={() => setEditing(null)} onSave={saveTask} onComplete={editing.id ? (task) => patchTask(task, { status: task.status === "done" ? "todo" : "done" }, task.status === "done" ? "タスクを未完了に戻しました。" : "タスクを完了しました。") : undefined} />}
@@ -242,8 +215,6 @@ function DueView({ tasks, onComplete, onEdit }: { tasks: Task[]; onComplete: (ta
 
 function DueSection({ title, subtitle, tasks, onComplete, onEdit }: { title: string; subtitle: string; tasks: Task[]; onComplete: (task: Task) => void; onEdit: (task: Task) => void }) { return <section className="panel due-section"><div className="panel-header"><div><h2>{title}</h2><p className="muted">{subtitle}</p></div><span className="count-pill">{tasks.length}件</span></div><TaskList tasks={tasks} onEdit={onEdit} onComplete={onComplete} showOverdue /></section>; }
 
-const PLAN_DROPZONE_ID = "today-plan-dropzone";
-const UNPLANNED_DROPZONE_ID = "unplanned-dropzone";
 const SCHEDULE_SLOT_PREFIX = "schedule-slot:";
 const SCHEDULE_ITEM_PREFIX = "schedule-item:";
 const SCHEDULE_START_MINUTES = 7 * 60;
@@ -256,16 +227,10 @@ function planCollisionDetection(args: Parameters<typeof pointerWithin>[0]) {
   return pointerCollisions.length > 0 ? pointerCollisions : closestCenter(args);
 }
 
-function PlanningView({ tasks, onEdit, onComplete, onPlanChange, onAdd }: { tasks: Task[]; onEdit: (task: Task) => void; onComplete: (task: Task) => void; onPlanChange: (orderedTasks: Task[], removedTask?: Task) => Promise<void>; onAdd: () => void }) {
+function PlanningView({ tasks, onEdit, onComplete, onAdd }: { tasks: Task[]; onEdit: (task: Task) => void; onComplete: (task: Task) => void; onAdd: () => void }) {
   const today = todayInTokyo();
   const activeTasks = tasks.filter((task) => !task.isDeleted && task.status === "todo");
-  const initialPlannedIds = activeTasks
-    .filter((task) => task.planDate === today)
-    .sort((a, b) => (a.planOrder ?? Number.MAX_SAFE_INTEGER) - (b.planOrder ?? Number.MAX_SAFE_INTEGER) || a.createdAt.localeCompare(b.createdAt))
-    .map((task) => task.id);
-  const [plannedIds, setPlannedIds] = useState(initialPlannedIds);
   const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
   const [scheduleItems, setScheduleItems] = useState<ScheduleItem[]>([]);
   const [scheduleLoading, setScheduleLoading] = useState(true);
   const [scheduleSaving, setScheduleSaving] = useState(false);
@@ -276,14 +241,6 @@ function PlanningView({ tasks, onEdit, onComplete, onPlanChange, onAdd }: { task
     useSensor(TouchSensor, { activationConstraint: { delay: 120, tolerance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
-
-  // Keep the local drag order aligned with persisted task changes and date changes.
-  /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
-  useEffect(() => {
-    if (saving) return;
-    setPlannedIds((current) => current.length === initialPlannedIds.length && current.every((id, index) => id === initialPlannedIds[index]) ? current : initialPlannedIds);
-  }, [tasks, today, saving]);
-  /* eslint-enable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
 
   const loadSchedule = useCallback(async () => {
     setScheduleLoading(true);
@@ -304,9 +261,8 @@ function PlanningView({ tasks, onEdit, onComplete, onPlanChange, onAdd }: { task
   useEffect(() => { void loadSchedule(); }, [loadSchedule]);
 
   const taskById = new Map(activeTasks.map((task) => [task.id, task]));
-  const planned = plannedIds.map((id) => taskById.get(id)).filter((task): task is Task => Boolean(task));
-  const plannedSet = new Set(planned.map((task) => task.id));
-  const unplanned = activeTasks.filter((task) => !plannedSet.has(task.id));
+  const scheduledTaskIds = new Set(scheduleItems.map((item) => item.taskId).filter((id): id is string => Boolean(id)));
+  const unscheduled = activeTasks.filter((task) => !scheduledTaskIds.has(task.id));
   const draggingTask = draggingId ? taskById.get(draggingId) : undefined;
 
   async function saveSchedule(input: CreateScheduleItemInput, item?: ScheduleItem) {
@@ -363,75 +319,31 @@ function PlanningView({ tasks, onEdit, onComplete, onPlanChange, onAdd }: { task
     await saveSchedule({ scheduleDate: item.scheduleDate, startTime, endTime, itemType: item.itemType, taskId: item.taskId, title: item.title, comment: item.comment }, item);
   }
 
-  async function persistOrder(nextIds: string[], removedTask?: Task) {
-    if (saving) return;
-    setPlannedIds(nextIds);
-    const nextTasks = nextIds.map((id) => taskById.get(id)).filter((task): task is Task => Boolean(task));
-    setSaving(true);
-    try {
-      await onPlanChange(nextTasks, removedTask);
-    } finally {
-      setSaving(false);
-    }
-  }
-
   function handleDragEnd({ active, over }: DragEndEvent) {
     setDraggingId(null);
     if (!over) return;
     const activeId = String(active.id);
     const overId = String(over.id);
-    if (overId.startsWith(SCHEDULE_SLOT_PREFIX)) {
-      const startTime = overId.slice(SCHEDULE_SLOT_PREFIX.length);
-      if (activeId.startsWith(SCHEDULE_ITEM_PREFIX)) {
-        const item = scheduleItems.find((entry) => entry.id === activeId.slice(SCHEDULE_ITEM_PREFIX.length));
-        if (item) void moveSchedule(item, startTime);
-      } else {
-        const task = taskById.get(activeId);
-        if (task) void scheduleTask(task, startTime);
-      }
+    if (!overId.startsWith(SCHEDULE_SLOT_PREFIX)) return;
+    const startTime = overId.slice(SCHEDULE_SLOT_PREFIX.length);
+    if (activeId.startsWith(SCHEDULE_ITEM_PREFIX)) {
+      const item = scheduleItems.find((entry) => entry.id === activeId.slice(SCHEDULE_ITEM_PREFIX.length));
+      if (item) void moveSchedule(item, startTime);
       return;
     }
-    const currentIndex = plannedIds.indexOf(activeId);
-    const isPlanned = currentIndex >= 0;
-    const activeTask = taskById.get(activeId);
-    if (!activeTask) return;
-
-    const unplannedIds = new Set(unplanned.map((task) => task.id));
-    if (isPlanned && (overId === UNPLANNED_DROPZONE_ID || unplannedIds.has(overId))) {
-      persistOrder(plannedIds.filter((id) => id !== activeId), activeTask);
-      return;
-    }
-    if (!isPlanned && (overId === PLAN_DROPZONE_ID || plannedIds.includes(overId))) {
-      const targetIndex = overId === PLAN_DROPZONE_ID ? plannedIds.length : plannedIds.indexOf(overId);
-      const nextIds = [...plannedIds];
-      nextIds.splice(Math.max(targetIndex, 0), 0, activeId);
-      persistOrder(nextIds);
-      return;
-    }
-    if (isPlanned && plannedIds.includes(overId) && activeId !== overId) {
-      persistOrder(arrayMove(plannedIds, currentIndex, plannedIds.indexOf(overId)));
-    }
-  }
-
-  function moveByButton(index: number, offset: number) {
-    const targetIndex = index + offset;
-    if (targetIndex < 0 || targetIndex >= plannedIds.length) return;
-    persistOrder(arrayMove(plannedIds, index, targetIndex));
+    const task = taskById.get(activeId);
+    if (task) void scheduleTask(task, startTime);
   }
 
   return (
     <div className="content-wrap planning-page">
-      <PageHeading eyebrow="TODAY / PLAN" title="今日の段取り" description={`${planned.length}件の実行順と、今日の時間割を決める。`} action={<div className="planning-heading-actions"><button className="primary-button" onClick={onAdd}>＋ タスクを追加</button><button className="secondary-button" onClick={() => setScheduleEditor({ startTime: "09:00" })}>＋ 予定を追加</button></div>} />
+      <PageHeading eyebrow="TODAY / PLAN" title="今日の段取り" description={`${unscheduled.length}件の未配置タスクと、今日の時間割を決める。`} action={<div className="planning-heading-actions"><button className="primary-button" onClick={onAdd}>＋ タスクを追加</button><button className="secondary-button" onClick={() => setScheduleEditor({ startTime: "09:00" })}>＋ 予定を追加</button></div>} />
       {scheduleMessage && <div className={`schedule-message ${scheduleMessage.type}`} role="status">{scheduleMessage.text}<button type="button" onClick={() => setScheduleMessage(null)} aria-label="スケジュール通知を閉じる">×</button></div>}
       <DndContext sensors={sensors} collisionDetection={planCollisionDetection} onDragStart={({ active }) => setDraggingId(String(active.id))} onDragCancel={() => setDraggingId(null)} onDragEnd={handleDragEnd}>
-        <PlanningDropzones
-          unplanned={unplanned}
-          planned={planned}
-          disabled={saving}
+        <PlanningSourceMatrix
+          tasks={unscheduled}
+          disabled={scheduleSaving}
           onEdit={onEdit}
-          onMoveUp={(index) => moveByButton(index, -1)}
-          onMoveDown={(index) => moveByButton(index, 1)}
-          onRemove={(task) => persistOrder(plannedIds.filter((id) => id !== task.id), task)}
           onSchedule={(task) => setScheduleEditor({ task, startTime: "09:00" })}
         />
         <ScheduleTimeline items={scheduleItems} tasks={tasks} loading={scheduleLoading} saving={scheduleSaving} onAdd={() => setScheduleEditor({ startTime: "09:00" })} onEdit={(item) => setScheduleEditor({ item, task: item.taskId ? tasks.find((task) => task.id === item.taskId) : undefined })} onDelete={deleteSchedule} onComplete={onComplete} />
@@ -443,65 +355,53 @@ function PlanningView({ tasks, onEdit, onComplete, onPlanChange, onAdd }: { task
   );
 }
 
-function PlanningDropzones({ unplanned, planned, disabled, onEdit, onMoveUp, onMoveDown, onRemove, onSchedule }: { unplanned: Task[]; planned: Task[]; disabled: boolean; onEdit: (task: Task) => void; onMoveUp: (index: number) => void; onMoveDown: (index: number) => void; onRemove: (task: Task) => void; onSchedule: (task: Task) => void }) {
-  const { setNodeRef: setPlanDropRef, isOver: isOverPlan } = useDroppable({ id: PLAN_DROPZONE_ID });
-  const { setNodeRef: setUnplannedDropRef, isOver: isOverUnplanned } = useDroppable({ id: UNPLANNED_DROPZONE_ID });
+function PlanningSourceMatrix({ tasks, disabled, onEdit, onSchedule }: { tasks: Task[]; disabled: boolean; onEdit: (task: Task) => void; onSchedule: (task: Task) => void }) {
   return (
-    <div className="planning-layout">
-      <section id={UNPLANNED_DROPZONE_ID} ref={setUnplannedDropRef} className={`planning-panel planning-matrix-panel ${isOverUnplanned ? "drop-active" : ""}`} aria-labelledby="unplanned-title">
-        <div className="planning-panel-header"><div><p className="eyebrow">SOURCE TASKS</p><h2 id="unplanned-title">未計画タスク</h2></div><span className="count-pill">{unplanned.length}件</span></div>
-        <div className="matrix-legend planning-matrix-legend"><span>緊急度 <b>高 ↑</b></span><span>重要度 <b>高 →</b></span></div>
-        <SortableContext items={unplanned.map((task) => task.id)} strategy={verticalListSortingStrategy}>
-          <div className="matrix-grid planning-matrix-grid">
-            {MATRIX_QUADRANTS.map((quadrant) => {
-              const items = unplanned.filter((task) => task.priority === quadrant.priority);
-              return (
-                <section key={quadrant.priority} className={`quadrant quadrant-${quadrant.priority.toLowerCase()}`}>
-                  <div className="quadrant-heading">
-                    <div><span className="priority-badge">{quadrant.priority}</span><h2>{quadrant.label}</h2><p>{quadrant.sub}</p></div>
-                    <strong>{items.length}</strong>
+    <section className="planning-panel planning-matrix-panel" aria-labelledby="unplanned-title">
+      <div className="planning-panel-header"><div><p className="eyebrow">SOURCE TASKS</p><h2 id="unplanned-title">未計画タスク</h2></div><span className="count-pill">{tasks.length}件</span></div>
+      <div className="matrix-legend planning-matrix-legend"><span>緊急度 <b>高 ↑</b></span><span>重要度 <b>高 →</b></span></div>
+      <SortableContext items={tasks.map((task) => task.id)} strategy={verticalListSortingStrategy}>
+        <div className="matrix-grid planning-matrix-grid">
+          {MATRIX_QUADRANTS.map((quadrant) => {
+            const items = tasks.filter((task) => task.priority === quadrant.priority);
+            return (
+              <section key={quadrant.priority} className={`quadrant quadrant-${quadrant.priority.toLowerCase()}`}>
+                <div className="quadrant-heading">
+                  <div><span className="priority-badge">{quadrant.priority}</span><h2>{quadrant.label}</h2><p>{quadrant.sub}</p></div>
+                  <strong>{items.length}</strong>
+                </div>
+                {items.length === 0 ? <p className="quadrant-empty">未計画のタスクはありません</p> : (
+                  <div className="quadrant-tasks">
+                    {items.map((task) => <PlanTaskCard key={task.id} task={task} disabled={disabled} onEdit={onEdit} onSchedule={() => onSchedule(task)} />)}
                   </div>
-                  {items.length === 0 ? <p className="quadrant-empty">未計画のタスクはありません</p> : (
-                    <div className="quadrant-tasks">
-                      {items.map((task) => <PlanTaskCard key={task.id} task={task} disabled={disabled} onEdit={onEdit} onSchedule={() => onSchedule(task)} />)}
-                    </div>
-                  )}
-                </section>
-              );
-            })}
-          </div>
-        </SortableContext>
-      </section>
-      <section id={PLAN_DROPZONE_ID} ref={setPlanDropRef} className={`planning-panel planning-queue-panel ${isOverPlan ? "drop-active" : ""}`} aria-labelledby="planned-title">
-        <div className="planning-panel-header"><div><p className="eyebrow">EXECUTION ORDER</p><h2 id="planned-title">今日の実行順</h2></div><span className="count-pill">{planned.length}件</span></div>
-        <div className="planning-dropzone planning-queue">
-          <SortableContext items={planned.map((task) => task.id)} strategy={verticalListSortingStrategy}>
-            {planned.length === 0 ? <p className="planning-empty">ここへタスクをドラッグすると、今日の段取りに追加されます。</p> : planned.map((task, index) => <PlanTaskCard key={task.id} task={task} planned disabled={disabled} index={index} total={planned.length} onEdit={onEdit} onMoveUp={() => onMoveUp(index)} onMoveDown={() => onMoveDown(index)} onRemove={() => onRemove(task)} onSchedule={() => onSchedule(task)} />)}
-          </SortableContext>
+                )}
+              </section>
+            );
+          })}
         </div>
-      </section>
-    </div>
+      </SortableContext>
+    </section>
   );
 }
 
-function PlanTaskCard({ task, planned = false, disabled = false, index = 0, total = 0, onEdit, onMoveUp, onMoveDown, onRemove, onSchedule }: { task: Task; planned?: boolean; disabled?: boolean; index?: number; total?: number; onEdit: (task: Task) => void; onMoveUp?: () => void; onMoveDown?: () => void; onRemove?: () => void; onSchedule?: () => void }) {
+function PlanTaskCard({ task, disabled = false, onEdit, onSchedule }: { task: Task; disabled?: boolean; onEdit: (task: Task) => void; onSchedule?: () => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.35 : 1 };
   return (
-    <article ref={setNodeRef} style={style} className={`plan-task-card ${planned ? "planned" : ""}`} data-plan-task-id={task.id} data-plan-task-title={task.title}>
+    <article ref={setNodeRef} style={style} className="plan-task-card" data-plan-task-id={task.id} data-plan-task-title={task.title}>
       <button type="button" className="plan-drag-handle" disabled={disabled} {...attributes} {...listeners} aria-label={`${task.title}をドラッグ`}>⠿</button>
       <button type="button" className="plan-task-content" onClick={() => onEdit(task)} aria-label={`${task.title}の詳細を開く`}>
         <strong title={task.title}>{truncateText(task.title, 34)}</strong>
         <span className="plan-task-meta"><b className={`priority-text ${task.priority.toLowerCase()}`}>{task.priority}</b>{task.dueDate}</span>
         {task.comment && <small title={task.comment}>{truncateText(task.comment, 52)}</small>}
       </button>
-      <div className="plan-task-actions"><button type="button" className="plan-schedule-button" onClick={onSchedule} disabled={disabled} aria-label={`${task.title}を時間割へ追加`}>◷</button>{planned && <><button type="button" className="plan-order-button" onClick={onMoveUp} disabled={disabled || index === 0} aria-label={`${task.title}を上へ移動`}>↑</button><button type="button" className="plan-order-button" onClick={onMoveDown} disabled={disabled || index === total - 1} aria-label={`${task.title}を下へ移動`}>↓</button><button type="button" className="plan-remove-button" onClick={onRemove} disabled={disabled} aria-label={`${task.title}を段取りから外す`}>×</button></>}</div>
+      <div className="plan-task-actions"><button type="button" className="plan-schedule-button" onClick={onSchedule} disabled={disabled} aria-label={`${task.title}を時間割へ追加`}>◷</button></div>
     </article>
   );
 }
 
 function PlanTaskPreview({ task }: { task: Task }) {
-  return <div className="plan-task-card planned drag-preview"><span className="plan-drag-handle">⠿</span><div className="plan-task-content"><strong>{truncateText(task.title, 34)}</strong><span className="plan-task-meta"><b className={`priority-text ${task.priority.toLowerCase()}`}>{task.priority}</b>{task.dueDate}</span></div></div>;
+  return <div className="plan-task-card drag-preview"><span className="plan-drag-handle">⠿</span><div className="plan-task-content"><strong>{truncateText(task.title, 34)}</strong><span className="plan-task-meta"><b className={`priority-text ${task.priority.toLowerCase()}`}>{task.priority}</b>{task.dueDate}</span></div></div>;
 }
 
 function ScheduleTimeline({ items, tasks, loading, saving, onAdd, onEdit, onDelete, onComplete }: { items: ScheduleItem[]; tasks: Task[]; loading: boolean; saving: boolean; onAdd: () => void; onEdit: (item: ScheduleItem) => void; onDelete: (item: ScheduleItem) => void; onComplete: (task: Task) => void }) {
