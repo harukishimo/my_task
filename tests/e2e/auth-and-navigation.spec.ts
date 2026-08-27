@@ -187,6 +187,7 @@ test.describe("authentication boundary", () => {
     await page.getByRole("link", { name: "WBS" }).first().click();
     await expect(page).toHaveURL(/\/wbs$/);
     await expect(page.getByRole("heading", { name: "時間軸WBS" })).toBeVisible();
+    await expect(page.getByText("P4 あとで")).toBeVisible();
     await expect(page.getByRole("button", { name: title, exact: true })).toBeVisible();
     await expect(page.getByLabel(`${title}の大枠確認`)).toBeVisible();
     await expect(page.getByLabel(`${title}の半分目の進捗確認`)).toBeVisible();
@@ -203,6 +204,41 @@ test.describe("authentication boundary", () => {
     await page.getByRole("button", { name: `${title}の詳細を開く` }).click();
     await expect(page.getByRole("heading", { name: "タスクを編集" })).toBeVisible();
     await expect(page.getByRole("textbox", { name: "期日 必須" })).toHaveValue("2026-09-12");
+  });
+
+  test("keeps WBS task names aligned with bars after scrolling", async ({ page }) => {
+    const prefix = `WBS align ${test.info().project.name} ${randomUUID().slice(0, 6)}`;
+    await page.goto("/login");
+    await page.getByLabel("パスフレーズ").fill("test-passphrase-long");
+    await page.getByRole("button", { name: "ロックを解除" }).click();
+    await expect(page).toHaveURL(/\/dashboard$/);
+    for (let index = 0; index < 12; index += 1) {
+      const response = await page.request.post("/api/tasks", {
+        data: { title: `${prefix} ${String(index).padStart(2, "0")}`, dueDate: "2026-09-10", isUrgent: false, isImportant: false },
+      });
+      expect(response.ok(), await response.text()).toBeTruthy();
+    }
+    await page.goto("/wbs");
+    const board = page.getByRole("region", { name: "WBSの時間軸。縦横にスクロールできます" });
+    await expect(board).toBeVisible();
+    const firstTitle = `${prefix} 00`;
+    const laterTitle = `${prefix} 10`;
+    async function rowDelta(title: string) {
+      return page.evaluate((taskTitle) => {
+        const name = document.querySelector(`button.wbs-name[aria-label="${taskTitle}"]`);
+        const row = name?.closest(".wbs-row");
+        const track = row?.querySelector(".wbs-track");
+        if (!name || !row || !track) return 99;
+        return Math.abs(name.getBoundingClientRect().top - track.getBoundingClientRect().top);
+      }, title);
+    }
+    expect(await rowDelta(firstTitle)).toBeLessThan(2);
+    await board.evaluate((element) => {
+      element.scrollTop = 180;
+      element.scrollLeft = 120;
+    });
+    expect(await rowDelta(laterTitle)).toBeLessThan(2);
+    expect(await rowDelta(firstTitle)).toBeLessThan(2);
   });
 
   test("shows mobile planning navigation and fallback controls", async ({ page }) => {

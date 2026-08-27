@@ -32,7 +32,7 @@ export default function WbsView({ tasks, onEdit, onStretchDue, onAdd }: { tasks:
         <div>
           <p className="eyebrow">WBS / TIMELINE</p>
           <h1>時間軸WBS</h1>
-          <p className="page-description">縦がタスク、横が日程です。バーを伸ばすと期日が変わり、3つの確認日が見えます。</p>
+          <p className="page-description">縦がタスク、横が日程です。P1からP4の順に並べ、同じ優先度の中は期日が早い順です。</p>
         </div>
         <button type="button" className="primary-button" onClick={onAdd}>＋ タスクを追加</button>
       </div>
@@ -45,22 +45,10 @@ export default function WbsView({ tasks, onEdit, onStretchDue, onAdd }: { tasks:
       {chart.rows.length === 0 ? (
         <section className="panel"><div className="empty-state"><span aria-hidden="true">✦</span><p>未完了タスクはありません。追加すると時間軸に並びます。</p></div></section>
       ) : (
-        <div className="wbs-board">
-          <div className="wbs-names">
-            <div className="wbs-corner">タスク</div>
-            {chart.rows.map((row) => {
-              const task = taskById.get(row.taskId);
-              if (!task) return null;
-              return (
-                <button type="button" key={row.taskId} className="wbs-name" onClick={() => onEdit(task)} title={row.title} aria-label={row.title}>
-                  <strong>{row.title}</strong>
-                  <small>{row.startDate} → {row.dueDate}</small>
-                </button>
-              );
-            })}
-          </div>
-          <div className="wbs-scroll" ref={scroller} tabIndex={0} role="region" aria-label="WBSの時間軸。横にスクロールできます">
-            <div className="wbs-grid" style={{ width: chart.days.length * WBS_DAY_WIDTH, ["--wbs-day-width" as string]: `${WBS_DAY_WIDTH}px` }}>
+        <div className="wbs-board" ref={scroller} tabIndex={0} role="region" aria-label="WBSの時間軸。縦横にスクロールできます">
+          <div className="wbs-grid" style={{ width: `calc(var(--wbs-name-width) + ${chart.days.length * WBS_DAY_WIDTH}px)`, ["--wbs-day-width" as string]: `${WBS_DAY_WIDTH}px` }}>
+            <div className="wbs-head">
+              <div className="wbs-corner">タスク</div>
               <div className="wbs-days">
                 {chart.days.map((day) => (
                   <div key={day} className={`wbs-day ${day === chart.today ? "today" : ""}`}>
@@ -69,13 +57,29 @@ export default function WbsView({ tasks, onEdit, onStretchDue, onAdd }: { tasks:
                   </div>
                 ))}
               </div>
-              {chart.todayOffset >= 0 && <div className="wbs-today-line" style={{ left: chart.todayOffset }} aria-hidden="true" />}
-              {chart.rows.map((row) => {
-                const task = taskById.get(row.taskId);
-                if (!task) return null;
-                return <WbsBar key={row.taskId} task={task} row={row} onEdit={onEdit} onStretchDue={onStretchDue} />;
-              })}
             </div>
+            {chart.todayOffset >= 0 && <div className="wbs-today-line" style={{ left: `calc(var(--wbs-name-width) + ${chart.todayOffset}px)` }} aria-hidden="true" />}
+            {chart.groups.map((group) => (
+              <div className={`wbs-group ${group.priority.toLowerCase()}`} key={group.priority}>
+                <div className="wbs-group-head">
+                  <div className="wbs-group-label">{group.label}</div>
+                  <div className="wbs-group-track" style={{ width: chart.days.length * WBS_DAY_WIDTH }} />
+                </div>
+                {group.rows.map((row) => {
+                  const task = taskById.get(row.taskId);
+                  if (!task) return null;
+                  return (
+                    <div className="wbs-row" key={row.taskId}>
+                      <button type="button" className="wbs-name" onClick={() => onEdit(task)} title={row.title} aria-label={row.title}>
+                        <strong>{row.title}</strong>
+                        <small>{row.startDate} → {row.dueDate}</small>
+                      </button>
+                      <WbsBar task={task} row={row} trackWidth={chart.days.length * WBS_DAY_WIDTH} onEdit={onEdit} onStretchDue={onStretchDue} />
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -83,7 +87,7 @@ export default function WbsView({ tasks, onEdit, onStretchDue, onAdd }: { tasks:
   );
 }
 
-function WbsBar({ task, row, onEdit, onStretchDue }: { task: Task; row: WbsRow; onEdit: (task: Task) => void; onStretchDue: (task: Task, dueDate: string) => void }) {
+function WbsBar({ task, row, trackWidth, onEdit, onStretchDue }: { task: Task; row: WbsRow; trackWidth: number; onEdit: (task: Task) => void; onStretchDue: (task: Task, dueDate: string) => void }) {
   const [liveWidth, setLiveWidth] = useState<number | null>(null);
   const origin = useRef<{ x: number; dueDate: string } | null>(null);
   const width = liveWidth ?? row.barWidth;
@@ -117,7 +121,7 @@ function WbsBar({ task, row, onEdit, onStretchDue }: { task: Task; row: WbsRow; 
   }
 
   return (
-    <div className="wbs-row">
+    <div className="wbs-track" style={{ width: trackWidth }}>
       <button type="button" className="wbs-bar" style={{ left: row.barLeft, width }} onClick={() => onEdit(task)} aria-label={`${task.title}の詳細を開く`}>
         <span className="wbs-bar-label">{task.title}</span>
       </button>

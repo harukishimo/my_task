@@ -1,7 +1,10 @@
 import { REVIEW_LABELS } from "@/lib/tasks/reviews";
+import { PRIORITY_LABELS } from "@/lib/tasks/priority";
 import { todayInTokyo } from "@/lib/tasks/date";
-import type { Task } from "@/types/task";
+import type { Priority, Task } from "@/types/task";
 
+const PRIORITY_RANK: Record<Priority, number> = { P1: 1, P2: 2, P3: 3, P4: 4 };
+const PRIORITY_ORDER: Priority[] = ["P1", "P2", "P3", "P4"];
 export const WBS_DAY_WIDTH = 56;
 const RANGE_PAD_BEFORE = 1;
 const RANGE_PAD_AFTER = 2;
@@ -20,6 +23,7 @@ export type WbsMarker = {
 export type WbsRow = {
   taskId: string;
   title: string;
+  priority: Priority;
   startDate: string;
   dueDate: string;
   barLeft: number;
@@ -27,10 +31,17 @@ export type WbsRow = {
   markers: WbsMarker[];
 };
 
+export type WbsGroup = {
+  priority: Priority;
+  label: string;
+  rows: WbsRow[];
+};
+
 export type WbsChart = {
   days: string[];
   today: string;
   todayOffset: number;
+  groups: WbsGroup[];
   rows: WbsRow[];
 };
 
@@ -108,9 +119,13 @@ export function buildWbsChart(tasks: Task[], today = todayInTokyo()): WbsChart {
     rangeEnd = addCalendarDays(rangeStart, MAX_DAYS - 1);
   }
   const days = enumerateDays(rangeStart, rangeEnd);
-  const rows = [...active]
-    .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.title.localeCompare(b.title, "ja"))
-    .map((task) => {
+  const sorted = [...active].sort((a, b) =>
+    PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] ||
+    a.dueDate.localeCompare(b.dueDate) ||
+    a.dueTime.localeCompare(b.dueTime) ||
+    a.title.localeCompare(b.title, "ja"),
+  );
+  const rows = sorted.map((task) => {
       const created = tokyoDateOnly(task.createdAt) ?? task.dueDate;
       const startDate = created <= task.dueDate ? created : task.dueDate;
       const markers: WbsMarker[] = (
@@ -127,6 +142,7 @@ export function buildWbsChart(tasks: Task[], today = todayInTokyo()): WbsChart {
       return {
         taskId: task.id,
         title: task.title,
+        priority: task.priority,
         startDate,
         dueDate: task.dueDate,
         barLeft: offsetFor(startDate, rangeStart),
@@ -134,10 +150,16 @@ export function buildWbsChart(tasks: Task[], today = todayInTokyo()): WbsChart {
         markers,
       };
     });
+  const groups = PRIORITY_ORDER.flatMap((priority) => {
+    const groupRows = rows.filter((row) => row.priority === priority);
+    if (groupRows.length === 0) return [];
+    return [{ priority, label: `${priority} ${PRIORITY_LABELS[priority]}`, rows: groupRows }];
+  });
   return {
     days,
     today,
     todayOffset: days.includes(today) ? calendarDaysBetween(rangeStart, today) * WBS_DAY_WIDTH : -1,
+    groups,
     rows,
   };
 }

@@ -55,4 +55,18 @@ describe("WBS chart layout", () => {
     expect(addCalendarDays("2026-08-25", 3)).toBe("2026-08-28");
     expect(addCalendarDays("2026-08-01", -1)).toBe("2026-07-31");
   });
+
+  it("groups rows by P1 to P4 and sorts due date within each priority", () => {
+    const chart = buildWbsChart([
+      task({ id: "p4-late", title: "後回し遅い", dueDate: "2026-08-28", priority: "P4" }),
+      task({ id: "p1-late", title: "緊急遅い", dueDate: "2026-08-27", isUrgent: true, isImportant: true, priority: "P1" }),
+      task({ id: "p2", title: "重要", dueDate: "2026-08-26", isImportant: true, priority: "P2" }),
+      task({ id: "p1-early", title: "緊急早い", dueDate: "2026-08-24", isUrgent: true, isImportant: true, priority: "P1" }),
+      task({ id: "p3", title: "手早く", dueDate: "2026-08-25", isUrgent: true, priority: "P3" }),
+      task({ id: "p4-early", title: "後回し早い", dueDate: "2026-08-23", priority: "P4" }),
+    ], "2026-08-21");
+
+    expect(chart.groups.map((group) => group.priority)).toEqual(["P1", "P2", "P3", "P4"]);
+    expect(chart.rows.map((row) => row.taskId)).toEqual(["p1-early", "p1-late", "p2", "p3", "p4-early", "p4-late"]);
+  });
 });
