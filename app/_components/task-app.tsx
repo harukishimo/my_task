@@ -11,6 +11,7 @@ import type { CreateScheduleItemInput, ScheduleItem } from "@/types/schedule";
 import { calculatePriority, PRIORITY_LABELS } from "@/lib/tasks/priority";
 import { dashboardMetrics, dueDateSort, prioritySort, priorityTasks } from "@/lib/tasks/selectors";
 import { overdueDays, todayInTokyo } from "@/lib/tasks/date";
+import { calculateReviewSchedule, REVIEW_LABELS, toDateTimeLocal } from "@/lib/tasks/reviews";
 import LogoMark from "@/app/_components/logo-mark";
 
 type View = "dashboard" | "all" | "due" | "matrix" | "plan" | "private";
@@ -97,7 +98,7 @@ export default function TaskApp({ view }: { view: View }) {
     setEditing(task);
   }
 
-  async function saveTask(input: { title: string; comment: string; dueDate: string; isUrgent: boolean; isImportant: boolean; category: TaskCategory }, task?: Task) {
+  async function saveTask(input: { title: string; comment: string; dueDate: string; isUrgent: boolean; isImportant: boolean; category: TaskCategory; reviewOutlineAt: string; reviewMidAt: string; reviewAlmostAt: string; reviewManual: boolean }, task?: Task) {
     mutationVersion.current += 1;
     const response = await fetch(task ? `/api/tasks/${task.id}` : "/api/tasks", {
       method: task ? "PATCH" : "POST",
@@ -605,23 +606,34 @@ function TaskList({ tasks, onEdit, onComplete, onRestore, onDelete, showComplete
 
 function EmptyState({ text }: { text: string }) { return <div className="empty-state"><span aria-hidden="true">✦</span><p>{text}</p></div>; }
 
-function TaskModal({ task, initialValues, onClose, onSave, onComplete }: { task?: Task; initialValues?: NewTaskDefaults; onClose: () => void; onSave: (input: { title: string; comment: string; dueDate: string; isUrgent: boolean; isImportant: boolean; category: TaskCategory }, task?: Task) => Promise<void>; onComplete?: (task: Task) => Promise<boolean> }) {
+function TaskModal({ task, initialValues, onClose, onSave, onComplete }: { task?: Task; initialValues?: NewTaskDefaults; onClose: () => void; onSave: (input: { title: string; comment: string; dueDate: string; isUrgent: boolean; isImportant: boolean; category: TaskCategory; reviewOutlineAt: string; reviewMidAt: string; reviewAlmostAt: string; reviewManual: boolean }, task?: Task) => Promise<void>; onComplete?: (task: Task) => Promise<boolean> }) {
   const [title, setTitle] = useState(task?.title ?? "");
   const [comment, setComment] = useState(task?.comment ?? "");
   const [dueDate, setDueDate] = useState(task?.dueDate ?? todayInTokyo());
   const [isUrgent, setIsUrgent] = useState(task?.isUrgent ?? initialValues?.isUrgent ?? false);
   const [isImportant, setIsImportant] = useState(task?.isImportant ?? initialValues?.isImportant ?? false);
   const [category, setCategory] = useState<TaskCategory>(task?.category ?? initialValues?.category ?? "default");
+  const [reviewManual, setReviewManual] = useState(task?.reviewManual ?? false);
+  const [reviewOutlineAt, setReviewOutlineAt] = useState(() => toDateTimeLocal(task?.reviewOutlineAt ?? null) || toDateTimeLocal(calculateReviewSchedule(task?.dueDate ?? todayInTokyo()).reviewOutlineAt));
+  const [reviewMidAt, setReviewMidAt] = useState(() => toDateTimeLocal(task?.reviewMidAt ?? null) || toDateTimeLocal(calculateReviewSchedule(task?.dueDate ?? todayInTokyo()).reviewMidAt));
+  const [reviewAlmostAt, setReviewAlmostAt] = useState(() => toDateTimeLocal(task?.reviewAlmostAt ?? null) || toDateTimeLocal(calculateReviewSchedule(task?.dueDate ?? todayInTokyo()).reviewAlmostAt));
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [completing, setCompleting] = useState(false);
+
+  function applyCalculatedReviews(nextDueDate = dueDate) {
+    const schedule = calculateReviewSchedule(nextDueDate);
+    setReviewOutlineAt(toDateTimeLocal(schedule.reviewOutlineAt));
+    setReviewMidAt(toDateTimeLocal(schedule.reviewMidAt));
+    setReviewAlmostAt(toDateTimeLocal(schedule.reviewAlmostAt));
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
     setSaving(true);
     try {
-      await onSave({ title, comment, dueDate, isUrgent, isImportant, category }, task);
+      await onSave({ title, comment, dueDate, isUrgent, isImportant, category, reviewOutlineAt, reviewMidAt, reviewAlmostAt, reviewManual }, task);
     } catch (e) {
       setError(e instanceof Error ? e.message : "保存できませんでした。");
     } finally {
@@ -662,12 +674,24 @@ function TaskModal({ task, initialValues, onClose, onSave, onComplete }: { task?
           <label htmlFor="task-comment">コメント</label>
           <textarea id="task-comment" value={comment} onChange={(event) => setComment(event.target.value)} maxLength={2000} rows={4} placeholder="補足、次にやること、参考情報など" />
           <label htmlFor="task-due">期日 <span className="required">必須</span></label>
-          <input id="task-due" type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} required />
+          <input id="task-due" type="date" value={dueDate} onChange={(event) => { setDueDate(event.target.value); if (!reviewManual) applyCalculatedReviews(event.target.value); }} required />
           <div className="boolean-grid">
             <label className="boolean-option"><input type="checkbox" checked={isUrgent} onChange={(event) => setIsUrgent(event.target.checked)} /><span><b>緊急</b><small>今日の判断が必要</small></span></label>
             <label className="boolean-option"><input type="checkbox" checked={isImportant} onChange={(event) => setIsImportant(event.target.checked)} /><span><b>重要</b><small>目的への影響が大きい</small></span></label>
           </div>
           <div className={`priority-preview ${priority.toLowerCase()}`}><span className="priority-badge">{priority}</span><div><b>{PRIORITY_LABELS[priority]}</b><small>緊急度と重要度から自動算出</small></div></div>
+          <div className="review-panel">
+            <div className="review-panel-header">
+              <div><p className="eyebrow">REVIEW POINTS</p><h3>進捗確認</h3><p className="muted">土日を除き、1日8時間（8:00-16:00）で算出。15分単位に四捨五入します。</p></div>
+              <span className="count-pill">{calculateReviewSchedule(dueDate).workHours}時間</span>
+            </div>
+            <label className="toggle review-manual"><input type="checkbox" checked={reviewManual} onChange={(event) => { setReviewManual(event.target.checked); if (!event.target.checked) applyCalculatedReviews(); }} /><span>手動変更（自動再計算しない）</span></label>
+            <div className="review-fields">
+              <div><label htmlFor="review-outline">{REVIEW_LABELS.outline}</label><input id="review-outline" type="datetime-local" value={reviewOutlineAt} onChange={(event) => { setReviewManual(true); setReviewOutlineAt(event.target.value); }} /></div>
+              <div><label htmlFor="review-mid">{REVIEW_LABELS.mid}</label><input id="review-mid" type="datetime-local" value={reviewMidAt} onChange={(event) => { setReviewManual(true); setReviewMidAt(event.target.value); }} /></div>
+              <div><label htmlFor="review-almost">{REVIEW_LABELS.almost}</label><input id="review-almost" type="datetime-local" value={reviewAlmostAt} onChange={(event) => { setReviewManual(true); setReviewAlmostAt(event.target.value); }} /></div>
+            </div>
+          </div>
           {error && <p className="field-error" role="alert">{error}</p>}
           <div className="modal-actions">
             {task && onComplete && <button type="button" className="complete-button" onClick={toggleComplete} disabled={saving || completing}>{completing ? "更新中…" : task.status === "done" ? "未完了に戻す" : "完了にする"}</button>}

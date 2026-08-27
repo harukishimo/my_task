@@ -9,6 +9,8 @@ describe("Google Sheets mapper", () => {
     expect(mapped?.comment).toBe("補足メモ");
     expect(mapped?.priority).toBe("P1");
     expect(mapped?.category).toBe("private");
+    expect(mapped?.reviewManual).toBe(false);
+    expect(mapped?.reviewOutlineAt).toBeTruthy();
     expect(mapped?.version).toBe(1);
   });
   it("round-trips today's execution plan fields", () => {
@@ -18,7 +20,7 @@ describe("Google Sheets mapper", () => {
   });
   it("keeps legacy rows valid with an empty comment", () => {
     const task = inputToTask({ title: "旧形式", dueDate: "2026-07-27", isUrgent: false, isImportant: false }, new Date("2026-07-20T00:00:00.000Z"), "id-legacy");
-    const legacy = rowToTask(taskToRow(task).slice(0, -1));
+    const legacy = rowToTask(taskToRow(task).slice(0, 13));
     expect(legacy?.comment).toBe("");
     expect(legacy?.category).toBe("default");
   });

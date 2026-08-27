@@ -5,12 +5,12 @@
 開発／Preview用とProduction用に別のスプレッドシートを作成し、どちらも一般公開しないでください。各スプレッドシートに`Tasks`タブを作成し、1行目へ次を入力します。
 
 ```text
-id | title | due_date | is_urgent | is_important | priority | status | completed_at | is_deleted | created_at | updated_at | version | comment | plan_date | plan_order | category
+id | title | due_date | is_urgent | is_important | priority | status | completed_at | is_deleted | created_at | updated_at | version | comment | plan_date | plan_order | category | work_hours | review_outline_at | review_mid_at | review_almost_at | review_manual
 ```
 
 ヘッダー行と列順は手動変更しないでください。
 
-既存のA:O形式で運用している場合は、P1に`category`を追加してください。既存タスクのP列は空欄のままで問題ありません（アプリが`default`として扱います）。
+既存のA:P形式で運用している場合は、Q1から`work_hours` `review_outline_at` `review_mid_at` `review_almost_at` `review_manual`を追加してください。既存行の新しい列は空欄のままで問題ありません。
 
 同じスプレッドシート内に`ScheduleItems`タブを追加し、1行目へ次を入力します。予定の追加・編集・削除はこのタブへ保存され、Tasks表は変更しません。
 

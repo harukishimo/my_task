@@ -16,6 +16,11 @@ export type Task = {
   planDate: string | null;
   planOrder: number | null;
   category: TaskCategory;
+  workHours: number;
+  reviewOutlineAt: string | null;
+  reviewMidAt: string | null;
+  reviewAlmostAt: string | null;
+  reviewManual: boolean;
   createdAt: string;
   updatedAt: string;
   version: number;
@@ -28,6 +33,10 @@ export type CreateTaskInput = {
   isUrgent: boolean;
   isImportant: boolean;
   category?: TaskCategory;
+  reviewOutlineAt?: string | null;
+  reviewMidAt?: string | null;
+  reviewAlmostAt?: string | null;
+  reviewManual?: boolean;
 };
 
 export type UpdateTaskInput = Partial<CreateTaskInput> & {
@@ -36,6 +45,11 @@ export type UpdateTaskInput = Partial<CreateTaskInput> & {
   planDate?: string | null;
   planOrder?: number | null;
   category?: TaskCategory;
+  workHours?: number;
+  reviewOutlineAt?: string | null;
+  reviewMidAt?: string | null;
+  reviewAlmostAt?: string | null;
+  reviewManual?: boolean;
   version: number;
 };
 

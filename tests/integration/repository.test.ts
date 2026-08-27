@@ -14,6 +14,8 @@ describe("TaskRepository contract", () => {
     const repository = new InMemoryTaskRepository();
     const created = await repository.create({ title: "検証する", dueDate: "2026-07-27", isUrgent: false, isImportant: true });
     expect(created.priority).toBe("P2");
+    expect(created.reviewManual).toBe(false);
+    expect(created).toHaveProperty("workHours");
     const completed = await repository.update(created.id, { status: "done", version: created.version });
     expect(completed.completedAt).not.toBeNull();
     const restored = await repository.update(created.id, { status: "todo", version: completed.version });

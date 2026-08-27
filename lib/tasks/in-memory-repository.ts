@@ -1,6 +1,7 @@
 import { inputToTask } from "@/lib/sheets/mapper";
 import { TaskConflictError, TaskNotFoundError } from "@/lib/tasks/errors";
 import type { CreateTaskInput, Task, TaskRepository, UpdateTaskInput } from "@/types/task";
+import { applyReviewFields } from "./reviews";
 import { calculatePriority } from "./priority";
 
 export class InMemoryTaskRepository implements TaskRepository {
@@ -31,6 +32,7 @@ export class InMemoryTaskRepository implements TaskRepository {
       comment: input.comment?.trim() ?? current.comment,
       priority: calculatePriority(input.isUrgent ?? current.isUrgent, input.isImportant ?? current.isImportant),
       completedAt: input.status === "done" ? (current.completedAt ?? new Date().toISOString()) : input.status === "todo" ? null : current.completedAt,
+      ...applyReviewFields(current, input),
       updatedAt: new Date().toISOString(),
       version: current.version + 1,
     };
