@@ -126,12 +126,11 @@ test.describe("authentication boundary", () => {
     await expect(page.getByRole("status").filter({ hasText: "予定を追加しました。" })).toBeVisible();
     const scheduledTask = page.locator(".schedule-block.task").filter({ hasText: taskTitle });
     await expect(scheduledTask).toBeVisible();
-    await expect(scheduledTask).toContainText("09:00–15:00");
+    await expect(scheduledTask).toContainText("09:00–10:00");
     await expect(page.getByRole("heading", { name: "予定を編集" })).toHaveCount(0);
     await page.getByRole("link", { name: "TODO ALL" }).first().click();
     await page.getByRole("button", { name: `${taskTitle}の詳細を開く` }).click();
-    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-    await expect(page.getByLabel("期日")).toHaveValue(today);
+    await expect(page.getByLabel("期日")).toHaveValue("2026-08-20");
     await expect(page.getByLabel("開始")).toHaveValue("09:00");
     await expect(page.getByLabel("完了予定")).toHaveValue("15:00");
     await page.getByRole("button", { name: "キャンセル" }).click();
@@ -175,6 +174,37 @@ test.describe("authentication boundary", () => {
     await page.getByRole("button", { name: "キャンセル" }).click();
   });
 
+  test("shows tasks on a WBS timeline with review markers", async ({ page }) => {
+    const title = `WBS ${test.info().project.name} ${randomUUID().slice(0, 8)}`;
+    await page.goto("/login");
+    await page.getByLabel("パスフレーズ").fill("test-passphrase-long");
+    await page.getByRole("button", { name: "ロックを解除" }).click();
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await page.getByRole("button", { name: /タスクを追加/ }).first().click();
+    await page.getByLabel("タスク名").fill(title);
+    await page.getByLabel("期日").fill("2026-09-10");
+    await page.getByRole("button", { name: "保存する" }).click();
+    await page.getByRole("link", { name: "WBS" }).first().click();
+    await expect(page).toHaveURL(/\/wbs$/);
+    await expect(page.getByRole("heading", { name: "時間軸WBS" })).toBeVisible();
+    await expect(page.getByRole("button", { name: title, exact: true })).toBeVisible();
+    await expect(page.getByLabel(`${title}の大枠確認`)).toBeVisible();
+    await expect(page.getByLabel(`${title}の半分目の進捗確認`)).toBeVisible();
+    await expect(page.getByLabel(`${title}の8割確認`)).toBeVisible();
+    const handle = page.getByRole("button", { name: `${title}のバーの長さを変える` });
+    await handle.scrollIntoViewIfNeeded();
+    const box = await handle.boundingBox();
+    expect(box).toBeTruthy();
+    await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box!.x + box!.width / 2 + 112, box!.y + box!.height / 2, { steps: 8 });
+    await page.mouse.up();
+    await expect(page.getByRole("button", { name: title, exact: true })).toContainText("2026-09-12");
+    await page.getByRole("button", { name: `${title}の詳細を開く` }).click();
+    await expect(page.getByRole("heading", { name: "タスクを編集" })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "期日 必須" })).toHaveValue("2026-09-12");
+  });
+
   test("shows mobile planning navigation and fallback controls", async ({ page }) => {
     test.skip(test.info().project.name !== "mobile", "モバイル表示のみ検証する");
     await page.goto("/login");
@@ -183,8 +213,8 @@ test.describe("authentication boundary", () => {
     await expect(page).toHaveURL(/\/dashboard$/);
     await page.getByRole("link", { name: "今日の段取り" }).last().click();
     await expect(page.getByRole("heading", { name: "今日の段取り" })).toBeVisible();
-    await expect(page.locator(".mobile-nav-link")).toHaveCount(6);
-    await expect(page.getByText("下端をドラッグして完了予定を変えられます。", { exact: false })).toBeVisible();
+    await expect(page.locator(".mobile-nav-link")).toHaveCount(7);
+    await expect(page.getByText("今日のスケジュールに60分で入ります。", { exact: false })).toBeVisible();
   });
 
   test("collapses and expands the desktop sidebar", async ({ page }) => {

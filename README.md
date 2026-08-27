@@ -38,6 +38,7 @@ node scripts/generate-passphrase-hash.mjs '16文字以上のパスフレーズ'
 - `/due`: 今日まで
 - `/matrix`: 優先度マトリクス
 - `/plan`: 今日の段取り（マトリクスから時間軸へ配置）
+- `/wbs`: 時間軸WBS（タスクを縦、日程を横に並べ、3つの確認日を表示）
 - `/private`: プライベートカテゴリのタスク一覧
 - `/login`: パスフレーズ認証
 - `/api/tasks`: タスクAPI

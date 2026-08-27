@@ -12,10 +12,11 @@ import { calculatePriority, PRIORITY_LABELS } from "@/lib/tasks/priority";
 import { dashboardMetrics, dueDateSort, prioritySort, priorityTasks } from "@/lib/tasks/selectors";
 import { overdueDays, todayInTokyo } from "@/lib/tasks/date";
 import { calculateReviewSchedule, DEFAULT_DUE_TIME, formatDueLabel, REVIEW_LABELS, toDateTimeLocal } from "@/lib/tasks/reviews";
-import { dueFieldsFromSchedule, scheduleRangeForTask, shouldSyncTaskDue, TASK_DAY_START_TIME } from "@/lib/tasks/schedule-due";
+import { dailyBlockFromStart, TASK_DAY_START_TIME } from "@/lib/tasks/schedule-due";
 import LogoMark from "@/app/_components/logo-mark";
+import WbsView from "@/app/_components/wbs-view";
 
-type View = "dashboard" | "all" | "due" | "matrix" | "plan" | "private";
+type View = "dashboard" | "all" | "due" | "matrix" | "plan" | "wbs" | "private";
 type NewTaskDefaults = Pick<Task, "isUrgent" | "isImportant"> & { category?: TaskCategory };
 
 const PRIORITY_DEFAULTS: Record<Priority, NewTaskDefaults> = {
@@ -38,6 +39,7 @@ const navItems: Array<{ href: string; view: View; label: string; icon: string }>
   { href: "/due", view: "due", label: "今日まで", icon: "◷" },
   { href: "/matrix", view: "matrix", label: "マトリクス", icon: "⊞" },
   { href: "/plan", view: "plan", label: "今日の段取り", icon: "≡" },
+  { href: "/wbs", view: "wbs", label: "WBS", icon: "▦" },
   { href: "/private", view: "private", label: "プライベート", icon: "◇" },
 ];
 
@@ -178,7 +180,8 @@ export default function TaskApp({ view }: { view: View }) {
           {view === "private" && <AllView active={privateActive} completed={privateCompleted} showCompleted={showCompleted} setShowCompleted={setShowCompleted} sort={sort} setSort={setSort} onEdit={openTask} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onRestore={(task) => patchTask(task, { status: "todo" }, "タスクを復元しました。")} onDelete={deleteTask} onAdd={() => openNewTask({ ...PRIORITY_DEFAULTS.P4, category: "private" })} heading="プライベートタスク" eyebrow="PRIVATE TASKS" emptyText="プライベートタスクはありません。" />}
           {view === "due" && <DueView tasks={tasks} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onEdit={openTask} />}
           {view === "matrix" && <MatrixView tasks={active} onMove={(task, isUrgent, isImportant) => patchTask(task, { isUrgent, isImportant }, "優先度マトリクスを更新しました。")} onEdit={openTask} onAdd={(priority) => openNewTask(PRIORITY_DEFAULTS[priority])} />}
-          {view === "plan" && <PlanningView tasks={tasks} onEdit={openTask} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onSyncDue={(task, update) => patchTask(task, update)} onAdd={() => openNewTask(PRIORITY_DEFAULTS.P4)} />}
+          {view === "plan" && <PlanningView tasks={tasks} onEdit={openTask} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onAdd={() => openNewTask(PRIORITY_DEFAULTS.P4)} />}
+          {view === "wbs" && <WbsView tasks={active} onEdit={openTask} onStretchDue={(task, dueDate) => { void patchTask(task, { dueDate }, "期日を更新しました。"); }} onAdd={() => openNewTask(PRIORITY_DEFAULTS.P4)} />}
         </>}
       </main>
       {editing && <TaskModal task={editing.id ? editing : undefined} initialValues={editing.id ? undefined : newTaskDefaults} onClose={() => setEditing(null)} onSave={saveTask} onComplete={editing.id ? (task) => patchTask(task, { status: task.status === "done" ? "todo" : "done" }, task.status === "done" ? "タスクを未完了に戻しました。" : "タスクを完了しました。") : undefined} />}
@@ -230,7 +233,7 @@ function planCollisionDetection(args: Parameters<typeof pointerWithin>[0]) {
   return pointerCollisions.length > 0 ? pointerCollisions : closestCenter(args);
 }
 
-function PlanningView({ tasks, onEdit, onComplete, onSyncDue, onAdd }: { tasks: Task[]; onEdit: (task: Task) => void; onComplete: (task: Task) => void; onSyncDue: (task: Task, update: { dueDate: string; dueTime: string }) => Promise<boolean>; onAdd: () => void }) {
+function PlanningView({ tasks, onEdit, onComplete, onAdd }: { tasks: Task[]; onEdit: (task: Task) => void; onComplete: (task: Task) => void; onAdd: () => void }) {
   const today = todayInTokyo();
   const activeTasks = tasks.filter((task) => !task.isDeleted && task.status === "todo");
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -272,21 +275,16 @@ function PlanningView({ tasks, onEdit, onComplete, onSyncDue, onAdd }: { tasks: 
     setScheduleSaving(true);
     setScheduleMessage(null);
     try {
-      const payload = input.itemType === "task" ? { ...input, ...scheduleRangeForTask(input.endTime) } : input;
       const response = await fetch(item ? `/api/schedule/${item.id}` : "/api/schedule", {
         method: item ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(item ? { ...payload, version: item.version } : payload),
+        body: JSON.stringify(item ? { ...input, version: item.version } : input),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) throw new Error(body?.error?.message ?? "予定を保存できませんでした。");
       const saved = body.data as ScheduleItem;
       setScheduleItems((current) => item ? current.map((entry) => entry.id === item.id ? saved : entry) : [...current, saved]);
       setScheduleEditor(null);
-      if (shouldSyncTaskDue(payload.itemType, payload.taskId)) {
-        const task = tasks.find((entry) => entry.id === payload.taskId);
-        if (task) await onSyncDue(task, dueFieldsFromSchedule(payload.scheduleDate, payload.endTime));
-      }
       setScheduleMessage({ type: "success", text: item ? "予定を更新しました。" : "予定を追加しました。" });
     } catch (error) {
       setScheduleMessage({ type: "error", text: error instanceof Error ? error.message : "予定を保存できませんでした。" });
@@ -314,22 +312,22 @@ function PlanningView({ tasks, onEdit, onComplete, onSyncDue, onAdd }: { tasks: 
     }
   }
 
-  async function scheduleTask(task: Task, endTime = task.dueTime) {
+  async function scheduleTask(task: Task, startTime = TASK_DAY_START_TIME) {
     const existing = scheduleItems.find((item) => item.taskId === task.id);
-    const range = scheduleRangeForTask(endTime);
+    const duration = existing ? Math.max(SCHEDULE_SLOT_MINUTES, toMinutes(existing.endTime) - toMinutes(existing.startTime)) : 60;
+    const range = dailyBlockFromStart(startTime, duration);
     await saveSchedule({ scheduleDate: today, startTime: range.startTime, endTime: range.endTime, itemType: "task", taskId: task.id, title: task.title, comment: existing?.comment || task.comment }, existing);
   }
 
   async function moveSchedule(item: ScheduleItem, startTime: string) {
     const duration = Math.max(SCHEDULE_SLOT_MINUTES, toMinutes(item.endTime) - toMinutes(item.startTime));
-    const endTime = minutesToTime(Math.min(toMinutes(startTime) + duration, 23 * 60 + 30));
-    await saveSchedule({ scheduleDate: item.scheduleDate, startTime, endTime, itemType: item.itemType, taskId: item.taskId, title: item.title, comment: item.comment }, item);
+    const range = dailyBlockFromStart(startTime, duration);
+    await saveSchedule({ scheduleDate: item.scheduleDate, startTime: range.startTime, endTime: range.endTime, itemType: item.itemType, taskId: item.taskId, title: item.title, comment: item.comment }, item);
   }
 
   async function resizeSchedule(item: ScheduleItem, endTime: string) {
-    const times = item.itemType === "task" ? scheduleRangeForTask(endTime) : { startTime: item.startTime, endTime };
-    if (toMinutes(times.endTime) <= toMinutes(times.startTime)) return;
-    await saveSchedule({ scheduleDate: item.scheduleDate, startTime: times.startTime, endTime: times.endTime, itemType: item.itemType, taskId: item.taskId, title: item.title, comment: item.comment }, item);
+    if (toMinutes(endTime) <= toMinutes(item.startTime)) return;
+    await saveSchedule({ scheduleDate: item.scheduleDate, startTime: item.startTime, endTime, itemType: item.itemType, taskId: item.taskId, title: item.title, comment: item.comment }, item);
   }
 
   function handleDragEnd({ active, over }: DragEndEvent) {
@@ -341,13 +339,7 @@ function PlanningView({ tasks, onEdit, onComplete, onSyncDue, onAdd }: { tasks: 
     const slotTime = overId.slice(SCHEDULE_SLOT_PREFIX.length);
     if (activeId.startsWith(SCHEDULE_ITEM_PREFIX)) {
       const item = scheduleItems.find((entry) => entry.id === activeId.slice(SCHEDULE_ITEM_PREFIX.length));
-      if (!item) return;
-      if (item.itemType === "task" && item.taskId) {
-        const task = tasks.find((entry) => entry.id === item.taskId);
-        if (task) void scheduleTask(task, slotTime).catch(() => undefined);
-        return;
-      }
-      void moveSchedule(item, slotTime);
+      if (item) void moveSchedule(item, slotTime).catch(() => undefined);
       return;
     }
     const task = taskById.get(activeId);
@@ -368,7 +360,7 @@ function PlanningView({ tasks, onEdit, onComplete, onSyncDue, onAdd }: { tasks: 
         <ScheduleTimeline items={scheduleItems} tasks={tasks} loading={scheduleLoading} saving={scheduleSaving} onAdd={() => setScheduleEditor({ startTime: "09:00" })} onEdit={(item) => setScheduleEditor({ item, task: item.taskId ? tasks.find((task) => task.id === item.taskId) : undefined })} onDelete={deleteSchedule} onResize={(item, endTime) => void resizeSchedule(item, endTime).catch(() => undefined)} onComplete={onComplete} />
         <DragOverlay>{draggingTask ? <PlanTaskPreview task={draggingTask} /> : null}</DragOverlay>
       </DndContext>
-      <p className="planning-hint">タスクを置くと開始は9:00、終了はその時間帯＝完了予定になります。下端をドラッグして完了予定を変えられます。自由予定の追加は「予定を追加」から。</p>
+      <p className="planning-hint">タスクを時間帯へドラッグすると、今日のスケジュールに60分で入ります。期日は変わりません。下端をドラッグして長さを変えられます。</p>
       {scheduleEditor && <ScheduleModal key={scheduleEditor.item?.id ?? scheduleEditor.task?.id ?? "new-event"} editor={scheduleEditor} onClose={() => setScheduleEditor(null)} onSave={saveSchedule} onDelete={deleteSchedule} saving={scheduleSaving} />}
     </div>
   );
@@ -501,7 +493,7 @@ function ScheduleBlock({ item, title, task, startIndex, span, column, columnCoun
   const isTask = item.itemType === "task";
   const [liveSpan, setLiveSpan] = useState<number | null>(null);
   const resizeOrigin = useRef<{ y: number; span: number } | null>(null);
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `${SCHEDULE_ITEM_PREFIX}${item.id}`, disabled: disabled || isTask });
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `${SCHEDULE_ITEM_PREFIX}${item.id}`, disabled });
   const displaySpan = liveSpan ?? span;
   const columnWidth = 100 / columnCount;
   const style = { top: `${startIndex * SCHEDULE_SLOT_HEIGHT + 3}px`, height: `calc(${displaySpan * SCHEDULE_SLOT_HEIGHT}px - 6px)`, left: `${column * columnWidth}%`, width: `calc(${columnWidth}% - var(--schedule-block-gap))`, transform: CSS.Transform.toString(transform), opacity: isDragging ? 0.35 : 1 };
@@ -534,7 +526,7 @@ function ScheduleBlock({ item, title, task, startIndex, span, column, columnCoun
     if (endTime !== item.endTime) onResize(endTime);
   }
 
-  return <article ref={setNodeRef} style={style} className={`schedule-block ${isTask ? "task" : "event"}`} {...(isTask ? {} : { ...attributes, ...listeners })} title={isTask ? "下端をドラッグして完了予定を変更できます。" : "ドラッグして時間を変更できます。"}>
+  return <article ref={setNodeRef} style={style} className={`schedule-block ${isTask ? "task" : "event"}`} {...attributes} {...listeners} title="ドラッグして時間帯を動かせます。下端で長さを変えられます。">
     <div className="schedule-block-main"><span>{item.startTime}–{minutesToTime(SCHEDULE_START_MINUTES + (startIndex + displaySpan) * SCHEDULE_SLOT_MINUTES)}</span><strong>{truncateText(title, 38)}</strong>{item.comment && <small>{truncateText(item.comment, 52)}</small>}</div>
     <div className="schedule-block-actions"><button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onEdit(); }} aria-label={`${title}の予定を編集`}>✎</button>{task && <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onComplete(task); }} aria-label={`${title}を完了にする`}>○</button>}<button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onDelete(); }} aria-label={`${title}の予定を削除`}>×</button></div>
     <button type="button" className="schedule-block-resize" aria-label={`${title}の時間幅を変更`} disabled={disabled} onPointerDown={handleResizePointerDown} onPointerMove={handleResizePointerMove} onPointerUp={handleResizePointerUp} onPointerCancel={() => { resizeOrigin.current = null; setLiveSpan(null); }} />
@@ -547,8 +539,8 @@ function ScheduleModal({ editor, onClose, onSave, onDelete, saving }: { editor: 
   const isTask = item?.itemType === "task" || Boolean(task);
   const [title, setTitle] = useState(item?.title ?? task?.title ?? "");
   const [comment, setComment] = useState(item?.comment ?? "");
-  const [startTime, setStartTime] = useState(isTask ? TASK_DAY_START_TIME : (item?.startTime ?? editor.startTime ?? TASK_DAY_START_TIME));
-  const [endTime, setEndTime] = useState(item?.endTime ?? (isTask ? scheduleRangeForTask(task?.dueTime ?? addMinutesToTime(TASK_DAY_START_TIME, 60)).endTime : addMinutesToTime(editor.startTime ?? TASK_DAY_START_TIME, 60)));
+  const [startTime, setStartTime] = useState(item?.startTime ?? editor.startTime ?? TASK_DAY_START_TIME);
+  const [endTime, setEndTime] = useState(item?.endTime ?? addMinutesToTime(editor.startTime ?? TASK_DAY_START_TIME, 60));
   const [error, setError] = useState("");
 
   async function submit(event: FormEvent) {
@@ -567,8 +559,8 @@ function ScheduleModal({ editor, onClose, onSave, onDelete, saving }: { editor: 
       <form onSubmit={submit}>
         <label htmlFor="schedule-title">予定名</label>
         <input id="schedule-title" aria-label="予定名" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={200} required disabled={isTask} autoFocus={!isTask} />
-        {isTask && <p className="schedule-linked-task">Tasks表のタスクと連動しています。</p>}
-        <div className="schedule-time-fields"><div><label htmlFor="schedule-start">開始</label><input id="schedule-start" type="time" value={startTime} onChange={(event) => setStartTime(event.target.value)} required readOnly={isTask} /></div><div><label htmlFor="schedule-end">終了</label><input id="schedule-end" type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} required /></div></div>
+        {isTask && <p className="schedule-linked-task">今日のスケジュールに載せています。タスクの期日は変わりません。</p>}
+        <div className="schedule-time-fields"><div><label htmlFor="schedule-start">開始</label><input id="schedule-start" type="time" value={startTime} onChange={(event) => setStartTime(event.target.value)} required /></div><div><label htmlFor="schedule-end">終了</label><input id="schedule-end" type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} required /></div></div>
         <label htmlFor="schedule-comment">メモ</label>
         <textarea id="schedule-comment" value={comment} onChange={(event) => setComment(event.target.value)} maxLength={2000} rows={3} placeholder="会議のURL、持ち物、補足など" />
         {error && <p className="field-error" role="alert">{error}</p>}
