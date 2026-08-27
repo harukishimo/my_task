@@ -7,6 +7,7 @@ export type Task = {
   title: string;
   comment: string;
   dueDate: string;
+  dueTime: string;
   isUrgent: boolean;
   isImportant: boolean;
   priority: Priority;
@@ -30,6 +31,7 @@ export type CreateTaskInput = {
   title: string;
   comment?: string;
   dueDate: string;
+  dueTime?: string;
   isUrgent: boolean;
   isImportant: boolean;
   category?: TaskCategory;

@@ -1,9 +1,11 @@
-import type { Task, UpdateTaskInput } from "@/types/task";
+import type { Task, TaskCategory, UpdateTaskInput } from "@/types/task";
 
 const TIME_ZONE = "Asia/Tokyo";
-const WORK_START_MINUTES = 8 * 60;
-const WORK_END_MINUTES = 16 * 60;
+const WORK_START_MINUTES = 10 * 60;
+const WORK_END_MINUTES = 19 * 60;
 const REVIEW_RATIOS = { outline: 0.1, mid: 0.3, almost: 0.5 } as const;
+
+export const DEFAULT_DUE_TIME = "19:00";
 
 export const REVIEW_LABELS = {
   outline: "大枠確認",
@@ -18,6 +20,12 @@ export type ReviewSchedule = {
   reviewAlmostAt: string | null;
 };
 
+export type ReviewCalculationInput = {
+  dueDate: string;
+  dueTime?: string;
+  category?: TaskCategory;
+};
+
 type TokyoParts = {
   year: number;
   month: number;
@@ -28,20 +36,25 @@ type TokyoParts = {
   weekday: string;
 };
 
-export function calculateReviewSchedule(dueDate: string, now = new Date()): ReviewSchedule {
-  const start = snapToWorkStart(now);
-  const deadline = dueDateEnd(dueDate);
-  const remainingMinutes = workMinutesBetween(start, deadline);
+export function calculateReviewSchedule(input: ReviewCalculationInput, now = new Date()): ReviewSchedule {
+  const includeWeekends = input.category === "private";
+  const start = snapToWorkStart(now, includeWeekends);
+  const deadline = dueDeadline(input.dueDate, input.dueTime);
+  const remainingMinutes = workMinutesBetween(start, deadline, includeWeekends);
   const workHours = Math.round((remainingMinutes / 60) * 100) / 100;
   if (remainingMinutes <= 0) {
     return { workHours: 0, reviewOutlineAt: null, reviewMidAt: null, reviewAlmostAt: null };
   }
   return {
     workHours,
-    reviewOutlineAt: formatReviewDateTime(roundReviewTime(addWorkMinutes(start, remainingMinutes * REVIEW_RATIOS.outline), start)),
-    reviewMidAt: formatReviewDateTime(roundReviewTime(addWorkMinutes(start, remainingMinutes * REVIEW_RATIOS.mid), start)),
-    reviewAlmostAt: formatReviewDateTime(roundReviewTime(addWorkMinutes(start, remainingMinutes * REVIEW_RATIOS.almost), start)),
+    reviewOutlineAt: formatReviewDateTime(roundReviewTime(addWorkMinutes(start, remainingMinutes * REVIEW_RATIOS.outline, includeWeekends), start)),
+    reviewMidAt: formatReviewDateTime(roundReviewTime(addWorkMinutes(start, remainingMinutes * REVIEW_RATIOS.mid, includeWeekends), start)),
+    reviewAlmostAt: formatReviewDateTime(roundReviewTime(addWorkMinutes(start, remainingMinutes * REVIEW_RATIOS.almost, includeWeekends), start)),
   };
+}
+
+export function formatDueLabel(dueDate: string, dueTime = DEFAULT_DUE_TIME): string {
+  return `${dueDate} ${dueTime || DEFAULT_DUE_TIME}`;
 }
 
 export function toDateTimeLocal(value: string | null): string {
@@ -60,12 +73,15 @@ export function fromDateTimeLocal(value: string): string | null {
 }
 
 export function applyReviewFields(
-  current: Pick<Task, "dueDate" | "workHours" | "reviewOutlineAt" | "reviewMidAt" | "reviewAlmostAt" | "reviewManual">,
-  input: Pick<UpdateTaskInput, "dueDate" | "reviewOutlineAt" | "reviewMidAt" | "reviewAlmostAt" | "reviewManual">,
+  current: Pick<Task, "dueDate" | "dueTime" | "category" | "workHours" | "reviewOutlineAt" | "reviewMidAt" | "reviewAlmostAt" | "reviewManual">,
+  input: Pick<UpdateTaskInput, "dueDate" | "dueTime" | "category" | "reviewOutlineAt" | "reviewMidAt" | "reviewAlmostAt" | "reviewManual">,
   now = new Date(),
 ): ReviewSchedule & { reviewManual: boolean } {
+  const dueDate = input.dueDate ?? current.dueDate;
+  const dueTime = input.dueTime ?? current.dueTime;
+  const category = input.category ?? current.category;
   if (input.reviewManual === false) {
-    return { ...calculateReviewSchedule(input.dueDate ?? current.dueDate, now), reviewManual: false };
+    return { ...calculateReviewSchedule({ dueDate, dueTime, category }, now), reviewManual: false };
   }
   if (input.reviewManual === true || current.reviewManual) {
     return {
@@ -76,8 +92,12 @@ export function applyReviewFields(
       reviewManual: true,
     };
   }
-  if (input.dueDate && input.dueDate !== current.dueDate) {
-    return { ...calculateReviewSchedule(input.dueDate, now), reviewManual: false };
+  if (
+    (input.dueDate !== undefined && input.dueDate !== current.dueDate) ||
+    (input.dueTime !== undefined && input.dueTime !== current.dueTime) ||
+    (input.category !== undefined && input.category !== current.category)
+  ) {
+    return { ...calculateReviewSchedule({ dueDate, dueTime, category }, now), reviewManual: false };
   }
   return {
     workHours: current.workHours,
@@ -88,32 +108,39 @@ export function applyReviewFields(
   };
 }
 
-function snapToWorkStart(now: Date): Date {
+function snapToWorkStart(now: Date, includeWeekends: boolean): Date {
   const parts = tokyoParts(now);
-  if (isWeekend(parts) || minutesOfDay(parts) >= WORK_END_MINUTES) {
-    return startOfWorkday(nextWeekday(parts));
+  if ((!includeWeekends && isWeekend(parts)) || minutesOfDay(parts) >= WORK_END_MINUTES) {
+    return startOfWorkday(nextWorkday(parts, includeWeekends));
   }
   if (minutesOfDay(parts) < WORK_START_MINUTES) return startOfWorkday(parts);
   return tokyoDate(parts.year, parts.month, parts.day, parts.hour, parts.minute);
 }
 
-function dueDateEnd(dueDate: string): Date {
+function dueDeadline(dueDate: string, dueTime = DEFAULT_DUE_TIME): Date {
   const [year, month, day] = dueDate.split("-").map(Number);
-  return tokyoDate(year, month, day, 16, 0);
+  const total = Math.min(parseTimeMinutes(dueTime), WORK_END_MINUTES);
+  return tokyoDate(year, month, day, Math.floor(total / 60), total % 60);
 }
 
-function workMinutesBetween(start: Date, end: Date): number {
+function parseTimeMinutes(value: string): number {
+  const match = /^(\d{2}):(\d{2})$/.exec(value.trim());
+  if (!match) return WORK_END_MINUTES;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function workMinutesBetween(start: Date, end: Date, includeWeekends: boolean): number {
   if (end.getTime() <= start.getTime()) return 0;
   let cursor = start;
   let total = 0;
   for (let step = 0; step < 400 && cursor.getTime() < end.getTime(); step += 1) {
     const parts = tokyoParts(cursor);
-    if (isWeekend(parts)) {
-      cursor = startOfWorkday(nextWeekday(parts));
+    if (!includeWeekends && isWeekend(parts)) {
+      cursor = startOfWorkday(nextWorkday(parts, includeWeekends));
       continue;
     }
     const dayStart = startOfWorkday(parts);
-    const dayEnd = tokyoDate(parts.year, parts.month, parts.day, 16, 0);
+    const dayEnd = workDayEnd(parts);
     const from = cursor.getTime() < dayStart.getTime() ? dayStart : cursor;
     const to = end.getTime() < dayEnd.getTime() ? end : dayEnd;
     if (to.getTime() > from.getTime()) total += (to.getTime() - from.getTime()) / 60_000;
@@ -122,21 +149,22 @@ function workMinutesBetween(start: Date, end: Date): number {
   return Math.max(0, total);
 }
 
-function addWorkMinutes(start: Date, minutes: number): Date {
+function addWorkMinutes(start: Date, minutes: number, includeWeekends: boolean): Date {
   let remaining = minutes;
   let cursor = start;
   for (let step = 0; step < 400 && remaining > 0; step += 1) {
     const parts = tokyoParts(cursor);
-    if (isWeekend(parts) || minutesOfDay(parts) >= WORK_END_MINUTES) {
-      cursor = startOfWorkday(nextWeekday(parts));
+    if ((!includeWeekends && isWeekend(parts)) || minutesOfDay(parts) >= WORK_END_MINUTES) {
+      cursor = startOfWorkday(nextWorkday(parts, includeWeekends));
       continue;
     }
     if (minutesOfDay(parts) < WORK_START_MINUTES) cursor = startOfWorkday(parts);
-    const dayEnd = tokyoDate(tokyoParts(cursor).year, tokyoParts(cursor).month, tokyoParts(cursor).day, 16, 0);
+    const current = tokyoParts(cursor);
+    const dayEnd = workDayEnd(current);
     const available = (dayEnd.getTime() - cursor.getTime()) / 60_000;
     if (remaining <= available) return new Date(cursor.getTime() + remaining * 60_000);
     remaining -= available;
-    cursor = startOfWorkday(nextWeekday(tokyoParts(dayEnd)));
+    cursor = startOfWorkday(nextWorkday(tokyoParts(dayEnd), includeWeekends));
   }
   return cursor;
 }
@@ -167,11 +195,16 @@ function tokyoDateFromMinutes(parts: TokyoParts, totalMinutes: number): Date {
 }
 
 function startOfWorkday(parts: Pick<TokyoParts, "year" | "month" | "day">): Date {
-  return tokyoDate(parts.year, parts.month, parts.day, 8, 0);
+  return tokyoDate(parts.year, parts.month, parts.day, 10, 0);
 }
 
-function nextWeekday(parts: TokyoParts): TokyoParts {
+function workDayEnd(parts: Pick<TokyoParts, "year" | "month" | "day">): Date {
+  return tokyoDate(parts.year, parts.month, parts.day, 19, 0);
+}
+
+function nextWorkday(parts: TokyoParts, includeWeekends: boolean): TokyoParts {
   let next = nextCalendarDay(parts);
+  if (includeWeekends) return next;
   while (isWeekend(next)) next = nextCalendarDay(next);
   return next;
 }

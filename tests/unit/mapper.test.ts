@@ -9,6 +9,7 @@ describe("Google Sheets mapper", () => {
     expect(mapped?.comment).toBe("補足メモ");
     expect(mapped?.priority).toBe("P1");
     expect(mapped?.category).toBe("private");
+    expect(mapped?.dueTime).toBe("19:00");
     expect(mapped?.reviewManual).toBe(false);
     expect(mapped?.reviewOutlineAt).toBeTruthy();
     expect(mapped?.version).toBe(1);
@@ -23,6 +24,12 @@ describe("Google Sheets mapper", () => {
     const legacy = rowToTask(taskToRow(task).slice(0, 13));
     expect(legacy?.comment).toBe("");
     expect(legacy?.category).toBe("default");
+    expect(legacy?.dueTime).toBe("19:00");
+  });
+  it("defaults missing due_time on older review rows", () => {
+    const task = inputToTask({ title: "時刻なし", dueDate: "2026-08-27", isUrgent: false, isImportant: false }, new Date("2026-08-27T01:00:00.000Z"), "id-time");
+    const withoutTime = rowToTask(taskToRow(task).slice(0, 21));
+    expect(withoutTime?.dueTime).toBe("19:00");
   });
   it("ignores headers and empty rows", () => {
     expect(rowToTask([...TASK_HEADERS])).toBeNull();

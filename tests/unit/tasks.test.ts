@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { calculatePriority } from "@/lib/tasks/priority";
-import { isDueByToday, isDueThisWeek, isDueToday, isOverdue, overdueDays } from "@/lib/tasks/date";
+import { isDueByToday, isDueThisWeek, isDueToday, isOverdue, isValidTimeOnly, overdueDays } from "@/lib/tasks/date";
 import { dashboardMetrics, priorityTasks } from "@/lib/tasks/selectors";
 import type { Task } from "@/types/task";
 
 const task = (overrides: Partial<Task> = {}): Task => ({
   id: crypto.randomUUID(), title: "task", comment: "", dueDate: "2026-07-27", isUrgent: false, isImportant: false,
   priority: "P4", status: "todo", completedAt: null, isDeleted: false, planDate: null, planOrder: null,
-  category: "default", workHours: 0, reviewOutlineAt: null, reviewMidAt: null, reviewAlmostAt: null, reviewManual: false,
+  category: "default", dueTime: "19:00", workHours: 0, reviewOutlineAt: null, reviewMidAt: null, reviewAlmostAt: null, reviewManual: false,
   createdAt: "2026-07-20T00:00:00.000Z", updatedAt: "2026-07-20T00:00:00.000Z", version: 1, ...overrides,
 });
 
@@ -28,6 +28,8 @@ describe("Tokyo date selectors", () => {
     expect(isDueToday("2026-07-27", "2026-07-27")).toBe(true);
     expect(isDueByToday("2026-07-27", "2026-07-27")).toBe(true);
     expect(overdueDays("2026-07-24", "2026-07-27")).toBe(3);
+    expect(isValidTimeOnly("19:00")).toBe(true);
+    expect(isValidTimeOnly("24:00")).toBe(false);
   });
   it("treats Monday through Sunday as one week", () => {
     expect(isDueThisWeek("2026-07-27", new Date("2026-07-27T02:00:00.000Z"))).toBe(true);

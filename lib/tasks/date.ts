@@ -1,4 +1,5 @@
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_PATTERN = /^\d{2}:\d{2}$/;
 
 export function todayInTokyo(now = new Date()): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -18,6 +19,12 @@ export function isValidDateOnly(value: string): boolean {
     candidate.getUTCMonth() === month - 1 &&
     candidate.getUTCDate() === day
   );
+}
+
+export function isValidTimeOnly(value: string): boolean {
+  if (!TIME_PATTERN.test(value)) return false;
+  const [hour, minute] = value.split(":").map(Number);
+  return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
 }
 
 export function isOverdue(dueDate: string, today = todayInTokyo()): boolean {

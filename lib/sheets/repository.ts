@@ -3,7 +3,7 @@ import "server-only";
 import type { sheets_v4 } from "googleapis";
 import { getServerConfig } from "@/lib/server-config";
 import { getSheetsClient } from "./client";
-import { CATEGORY_TASK_HEADERS, COMMENT_TASK_HEADERS, LEGACY_TASK_HEADERS, PLAN_TASK_HEADERS, TASK_HEADERS, inputToTask, rowToTask, taskToRow } from "./mapper";
+import { CATEGORY_TASK_HEADERS, COMMENT_TASK_HEADERS, LEGACY_TASK_HEADERS, PLAN_TASK_HEADERS, REVIEW_TASK_HEADERS, TASK_HEADERS, inputToTask, rowToTask, taskToRow } from "./mapper";
 import { applyReviewFields } from "@/lib/tasks/reviews";
 import { TaskConflictError, TaskNotFoundError, RepositoryUnavailableError } from "@/lib/tasks/errors";
 import type { CreateTaskInput, Task, TaskRepository, UpdateTaskInput } from "@/types/task";
@@ -21,17 +21,18 @@ export class GoogleSheetsTaskRepository implements TaskRepository {
     try {
       const response = await this.sheets.spreadsheets.values.get({
         spreadsheetId: this.config.googleSheetId,
-        range: `${this.config.googleSheetTab}!A:U`,
+        range: `${this.config.googleSheetTab}!A:V`,
         majorDimension: "ROWS",
       });
       const rows = response.data.values ?? [];
       const headers = rows[0] as string[] | undefined;
       const isCurrentHeaders = headers && TASK_HEADERS.every((header, index) => headers[index] === header);
+      const isReviewHeaders = headers && REVIEW_TASK_HEADERS.every((header, index) => headers[index] === header);
       const isCategoryHeaders = headers && CATEGORY_TASK_HEADERS.every((header, index) => headers[index] === header);
       const isPlanHeaders = headers && PLAN_TASK_HEADERS.every((header, index) => headers[index] === header);
       const isCommentHeaders = headers && COMMENT_TASK_HEADERS.every((header, index) => headers[index] === header);
       const isLegacyHeaders = headers && LEGACY_TASK_HEADERS.every((header, index) => headers[index] === header);
-      if (headers && !isCurrentHeaders && !isCategoryHeaders && !isPlanHeaders && !isCommentHeaders && !isLegacyHeaders) {
+      if (headers && !isCurrentHeaders && !isReviewHeaders && !isCategoryHeaders && !isPlanHeaders && !isCommentHeaders && !isLegacyHeaders) {
         throw new RepositoryUnavailableError("Google Sheets Tasks header is invalid");
       }
       const tasks: Task[] = [];
@@ -60,7 +61,7 @@ export class GoogleSheetsTaskRepository implements TaskRepository {
     try {
       await this.sheets.spreadsheets.values.append({
         spreadsheetId: this.config.googleSheetId,
-        range: `${this.config.googleSheetTab}!A:U`,
+        range: `${this.config.googleSheetTab}!A:V`,
         valueInputOption: "USER_ENTERED",
         insertDataOption: "INSERT_ROWS",
         requestBody: { values: [taskToRow(task)] },
@@ -90,7 +91,7 @@ export class GoogleSheetsTaskRepository implements TaskRepository {
     try {
       await this.sheets.spreadsheets.values.update({
         spreadsheetId: this.config.googleSheetId,
-        range: `${this.config.googleSheetTab}!A${rowNumber}:U${rowNumber}`,
+        range: `${this.config.googleSheetTab}!A${rowNumber}:V${rowNumber}`,
         valueInputOption: "USER_ENTERED",
         requestBody: { values: [taskToRow(next)] },
       });
@@ -107,7 +108,7 @@ export class GoogleSheetsTaskRepository implements TaskRepository {
   private async findRowNumber(id: string): Promise<number> {
     const response = await this.sheets.spreadsheets.values.get({
       spreadsheetId: this.config.googleSheetId,
-      range: `${this.config.googleSheetTab}!A:U`,
+      range: `${this.config.googleSheetTab}!A:V`,
       majorDimension: "ROWS",
     });
     const rows = response.data.values ?? [];
@@ -122,7 +123,7 @@ export async function ensureTaskHeaders(): Promise<void> {
   const sheets = getSheetsClient();
   await sheets.spreadsheets.values.update({
     spreadsheetId: config.googleSheetId,
-    range: `${config.googleSheetTab}!A1:U1`,
+    range: `${config.googleSheetTab}!A1:V1`,
     valueInputOption: "RAW",
     requestBody: { values: [TASK_HEADERS as unknown as string[]] },
   });

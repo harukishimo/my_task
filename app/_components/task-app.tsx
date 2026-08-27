@@ -11,7 +11,7 @@ import type { CreateScheduleItemInput, ScheduleItem } from "@/types/schedule";
 import { calculatePriority, PRIORITY_LABELS } from "@/lib/tasks/priority";
 import { dashboardMetrics, dueDateSort, prioritySort, priorityTasks } from "@/lib/tasks/selectors";
 import { overdueDays, todayInTokyo } from "@/lib/tasks/date";
-import { calculateReviewSchedule, REVIEW_LABELS, toDateTimeLocal } from "@/lib/tasks/reviews";
+import { calculateReviewSchedule, DEFAULT_DUE_TIME, formatDueLabel, REVIEW_LABELS, toDateTimeLocal } from "@/lib/tasks/reviews";
 import LogoMark from "@/app/_components/logo-mark";
 
 type View = "dashboard" | "all" | "due" | "matrix" | "plan" | "private";
@@ -98,7 +98,7 @@ export default function TaskApp({ view }: { view: View }) {
     setEditing(task);
   }
 
-  async function saveTask(input: { title: string; comment: string; dueDate: string; isUrgent: boolean; isImportant: boolean; category: TaskCategory; reviewOutlineAt: string; reviewMidAt: string; reviewAlmostAt: string; reviewManual: boolean }, task?: Task) {
+  async function saveTask(input: { title: string; comment: string; dueDate: string; dueTime: string; isUrgent: boolean; isImportant: boolean; category: TaskCategory; reviewOutlineAt: string; reviewMidAt: string; reviewAlmostAt: string; reviewManual: boolean }, task?: Task) {
     mutationVersion.current += 1;
     const response = await fetch(task ? `/api/tasks/${task.id}` : "/api/tasks", {
       method: task ? "PATCH" : "POST",
@@ -393,7 +393,7 @@ function PlanTaskCard({ task, disabled = false, onEdit, onSchedule }: { task: Ta
       <button type="button" className="plan-drag-handle" disabled={disabled} {...attributes} {...listeners} aria-label={`${task.title}をドラッグ`}>⠿</button>
       <button type="button" className="plan-task-content" onClick={() => onEdit(task)} aria-label={`${task.title}の詳細を開く`}>
         <strong title={task.title}>{truncateText(task.title, 34)}</strong>
-        <span className="plan-task-meta"><b className={`priority-text ${task.priority.toLowerCase()}`}>{task.priority}</b>{task.dueDate}</span>
+        <span className="plan-task-meta"><b className={`priority-text ${task.priority.toLowerCase()}`}>{task.priority}</b>{formatDueLabel(task.dueDate, task.dueTime)}</span>
         {task.comment && <small title={task.comment}>{truncateText(task.comment, 52)}</small>}
       </button>
       <div className="plan-task-actions"><button type="button" className="plan-schedule-button" onClick={onSchedule} disabled={disabled} aria-label={`${task.title}を時間割へ追加`}>◷</button></div>
@@ -402,7 +402,7 @@ function PlanTaskCard({ task, disabled = false, onEdit, onSchedule }: { task: Ta
 }
 
 function PlanTaskPreview({ task }: { task: Task }) {
-  return <div className="plan-task-card drag-preview"><span className="plan-drag-handle">⠿</span><div className="plan-task-content"><strong>{truncateText(task.title, 34)}</strong><span className="plan-task-meta"><b className={`priority-text ${task.priority.toLowerCase()}`}>{task.priority}</b>{task.dueDate}</span></div></div>;
+  return <div className="plan-task-card drag-preview"><span className="plan-drag-handle">⠿</span><div className="plan-task-content"><strong>{truncateText(task.title, 34)}</strong><span className="plan-task-meta"><b className={`priority-text ${task.priority.toLowerCase()}`}>{task.priority}</b>{formatDueLabel(task.dueDate, task.dueTime)}</span></div></div>;
 }
 
 function ScheduleTimeline({ items, tasks, loading, saving, onAdd, onEdit, onDelete, onComplete }: { items: ScheduleItem[]; tasks: Task[]; loading: boolean; saving: boolean; onAdd: () => void; onEdit: (item: ScheduleItem) => void; onDelete: (item: ScheduleItem) => void; onComplete: (task: Task) => void }) {
@@ -580,7 +580,7 @@ function MatrixView({ tasks, onMove, onEdit, onAdd }: { tasks: Task[]; onMove: (
                     <article className="matrix-task" draggable onDragStart={() => setDragging(task.id)} onDragEnd={() => setDragging(null)} key={task.id}>
                       <button type="button" className="matrix-task-content" onClick={() => onEdit(task)} aria-label={`${task.title}の詳細を開く`}>
                         <strong title={task.title}>{truncateText(task.title, MATRIX_TITLE_MAX_LENGTH)}</strong>
-                        <span>{task.dueDate}</span>
+                        <span>{formatDueLabel(task.dueDate, task.dueTime)}</span>
                         {task.comment && <span className="matrix-task-comment" title={task.comment}>{truncateText(task.comment, MATRIX_COMMENT_MAX_LENGTH)}</span>}
                       </button>
                       <div className="matrix-actions">
@@ -602,27 +602,29 @@ function MatrixView({ tasks, onMove, onEdit, onAdd }: { tasks: Task[]; onMove: (
   );
 }
 
-function TaskList({ tasks, onEdit, onComplete, onRestore, onDelete, showCompleted = false, showOverdue = false }: { tasks: Task[]; onEdit: (task: Task) => void; onComplete?: (task: Task) => void; onRestore?: (task: Task) => void; onDelete?: (task: Task) => void; showCompleted?: boolean; showOverdue?: boolean }) { return <div className="task-list">{tasks.map((task) => <article className={task.status === "done" ? "task-row completed" : "task-row"} key={task.id}><button className="check-button" onClick={() => task.status === "done" ? onRestore?.(task) : onComplete?.(task)} aria-label={task.status === "done" ? `${task.title}を未完了に戻す` : `${task.title}を完了にする`}>{task.status === "done" ? "↶" : "○"}</button><button type="button" className="task-main task-open-button" onClick={() => onEdit(task)} aria-label={`${task.title}の詳細を開く`}><strong>{task.title}</strong>{task.comment && <span className="task-comment">{task.comment}</span>}<span className="task-meta"><span className={`priority-text ${task.priority.toLowerCase()}`}>{task.priority}・{PRIORITY_LABELS[task.priority]}</span><span className={showOverdue && overdueDays(task.dueDate) > 0 ? "overdue-text" : ""}>{task.dueDate}{showOverdue && overdueDays(task.dueDate) > 0 ? `（${overdueDays(task.dueDate)}日超過）` : ""}</span>{task.status === "done" && <span>完了済み</span>}</span></button><div className="task-actions"><button className="icon-button" onClick={() => onEdit(task)} aria-label={`${task.title}を編集`}>✎</button>{showCompleted && task.status === "done" && onRestore && <button className="restore-button" onClick={() => onRestore(task)}>復元</button>}{onDelete && task.status !== "done" && <button className="icon-button danger" onClick={() => onDelete(task)} aria-label={`${task.title}を削除`}>⌫</button>}</div></article>)}</div>; }
+function TaskList({ tasks, onEdit, onComplete, onRestore, onDelete, showCompleted = false, showOverdue = false }: { tasks: Task[]; onEdit: (task: Task) => void; onComplete?: (task: Task) => void; onRestore?: (task: Task) => void; onDelete?: (task: Task) => void; showCompleted?: boolean; showOverdue?: boolean }) { return <div className="task-list">{tasks.map((task) => <article className={task.status === "done" ? "task-row completed" : "task-row"} key={task.id}><button className="check-button" onClick={() => task.status === "done" ? onRestore?.(task) : onComplete?.(task)} aria-label={task.status === "done" ? `${task.title}を未完了に戻す` : `${task.title}を完了にする`}>{task.status === "done" ? "↶" : "○"}</button><button type="button" className="task-main task-open-button" onClick={() => onEdit(task)} aria-label={`${task.title}の詳細を開く`}><strong>{task.title}</strong>{task.comment && <span className="task-comment">{task.comment}</span>}<span className="task-meta"><span className={`priority-text ${task.priority.toLowerCase()}`}>{task.priority}・{PRIORITY_LABELS[task.priority]}</span><span className={showOverdue && overdueDays(task.dueDate) > 0 ? "overdue-text" : ""}>{formatDueLabel(task.dueDate, task.dueTime)}{showOverdue && overdueDays(task.dueDate) > 0 ? `（${overdueDays(task.dueDate)}日超過）` : ""}</span>{task.status === "done" && <span>完了済み</span>}</span></button><div className="task-actions"><button className="icon-button" onClick={() => onEdit(task)} aria-label={`${task.title}を編集`}>✎</button>{showCompleted && task.status === "done" && onRestore && <button className="restore-button" onClick={() => onRestore(task)}>復元</button>}{onDelete && task.status !== "done" && <button className="icon-button danger" onClick={() => onDelete(task)} aria-label={`${task.title}を削除`}>⌫</button>}</div></article>)}</div>; }
 
 function EmptyState({ text }: { text: string }) { return <div className="empty-state"><span aria-hidden="true">✦</span><p>{text}</p></div>; }
 
-function TaskModal({ task, initialValues, onClose, onSave, onComplete }: { task?: Task; initialValues?: NewTaskDefaults; onClose: () => void; onSave: (input: { title: string; comment: string; dueDate: string; isUrgent: boolean; isImportant: boolean; category: TaskCategory; reviewOutlineAt: string; reviewMidAt: string; reviewAlmostAt: string; reviewManual: boolean }, task?: Task) => Promise<void>; onComplete?: (task: Task) => Promise<boolean> }) {
+function TaskModal({ task, initialValues, onClose, onSave, onComplete }: { task?: Task; initialValues?: NewTaskDefaults; onClose: () => void; onSave: (input: { title: string; comment: string; dueDate: string; dueTime: string; isUrgent: boolean; isImportant: boolean; category: TaskCategory; reviewOutlineAt: string; reviewMidAt: string; reviewAlmostAt: string; reviewManual: boolean }, task?: Task) => Promise<void>; onComplete?: (task: Task) => Promise<boolean> }) {
   const [title, setTitle] = useState(task?.title ?? "");
   const [comment, setComment] = useState(task?.comment ?? "");
   const [dueDate, setDueDate] = useState(task?.dueDate ?? todayInTokyo());
+  const [dueTime, setDueTime] = useState(task?.dueTime ?? DEFAULT_DUE_TIME);
   const [isUrgent, setIsUrgent] = useState(task?.isUrgent ?? initialValues?.isUrgent ?? false);
   const [isImportant, setIsImportant] = useState(task?.isImportant ?? initialValues?.isImportant ?? false);
   const [category, setCategory] = useState<TaskCategory>(task?.category ?? initialValues?.category ?? "default");
   const [reviewManual, setReviewManual] = useState(task?.reviewManual ?? false);
-  const [reviewOutlineAt, setReviewOutlineAt] = useState(() => toDateTimeLocal(task?.reviewOutlineAt ?? null) || toDateTimeLocal(calculateReviewSchedule(task?.dueDate ?? todayInTokyo()).reviewOutlineAt));
-  const [reviewMidAt, setReviewMidAt] = useState(() => toDateTimeLocal(task?.reviewMidAt ?? null) || toDateTimeLocal(calculateReviewSchedule(task?.dueDate ?? todayInTokyo()).reviewMidAt));
-  const [reviewAlmostAt, setReviewAlmostAt] = useState(() => toDateTimeLocal(task?.reviewAlmostAt ?? null) || toDateTimeLocal(calculateReviewSchedule(task?.dueDate ?? todayInTokyo()).reviewAlmostAt));
+  const initialSchedule = calculateReviewSchedule({ dueDate: task?.dueDate ?? todayInTokyo(), dueTime: task?.dueTime ?? DEFAULT_DUE_TIME, category: task?.category ?? initialValues?.category ?? "default" });
+  const [reviewOutlineAt, setReviewOutlineAt] = useState(() => toDateTimeLocal(task?.reviewOutlineAt ?? null) || toDateTimeLocal(initialSchedule.reviewOutlineAt));
+  const [reviewMidAt, setReviewMidAt] = useState(() => toDateTimeLocal(task?.reviewMidAt ?? null) || toDateTimeLocal(initialSchedule.reviewMidAt));
+  const [reviewAlmostAt, setReviewAlmostAt] = useState(() => toDateTimeLocal(task?.reviewAlmostAt ?? null) || toDateTimeLocal(initialSchedule.reviewAlmostAt));
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [completing, setCompleting] = useState(false);
 
-  function applyCalculatedReviews(nextDueDate = dueDate) {
-    const schedule = calculateReviewSchedule(nextDueDate);
+  function applyCalculatedReviews(nextDueDate = dueDate, nextDueTime = dueTime, nextCategory = category) {
+    const schedule = calculateReviewSchedule({ dueDate: nextDueDate, dueTime: nextDueTime, category: nextCategory });
     setReviewOutlineAt(toDateTimeLocal(schedule.reviewOutlineAt));
     setReviewMidAt(toDateTimeLocal(schedule.reviewMidAt));
     setReviewAlmostAt(toDateTimeLocal(schedule.reviewAlmostAt));
@@ -633,7 +635,7 @@ function TaskModal({ task, initialValues, onClose, onSave, onComplete }: { task?
     setError("");
     setSaving(true);
     try {
-      await onSave({ title, comment, dueDate, isUrgent, isImportant, category, reviewOutlineAt, reviewMidAt, reviewAlmostAt, reviewManual }, task);
+      await onSave({ title, comment, dueDate, dueTime, isUrgent, isImportant, category, reviewOutlineAt, reviewMidAt, reviewAlmostAt, reviewManual }, task);
     } catch (e) {
       setError(e instanceof Error ? e.message : "保存できませんでした。");
     } finally {
@@ -667,14 +669,22 @@ function TaskModal({ task, initialValues, onClose, onSave, onComplete }: { task?
           <label htmlFor="task-title">タスク名</label>
           <input id="task-title" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={200} required autoFocus />
           <label htmlFor="task-category">カテゴリ</label>
-          <select id="task-category" value={category} onChange={(event) => setCategory(event.target.value as TaskCategory)}>
+          <select id="task-category" value={category} onChange={(event) => { const next = event.target.value as TaskCategory; setCategory(next); if (!reviewManual) applyCalculatedReviews(dueDate, dueTime, next); }}>
             <option value="default">通常</option>
             <option value="private">プライベート</option>
           </select>
           <label htmlFor="task-comment">コメント</label>
           <textarea id="task-comment" value={comment} onChange={(event) => setComment(event.target.value)} maxLength={2000} rows={4} placeholder="補足、次にやること、参考情報など" />
-          <label htmlFor="task-due">期日 <span className="required">必須</span></label>
-          <input id="task-due" type="date" value={dueDate} onChange={(event) => { setDueDate(event.target.value); if (!reviewManual) applyCalculatedReviews(event.target.value); }} required />
+          <div className="due-fields">
+            <div>
+              <label htmlFor="task-due">期日 <span className="required">必須</span></label>
+              <input id="task-due" type="date" value={dueDate} onChange={(event) => { setDueDate(event.target.value); if (!reviewManual) applyCalculatedReviews(event.target.value, dueTime, category); }} required />
+            </div>
+            <div>
+              <label htmlFor="task-due-time">時刻</label>
+              <input id="task-due-time" type="time" value={dueTime} onChange={(event) => { setDueTime(event.target.value); if (!reviewManual) applyCalculatedReviews(dueDate, event.target.value, category); }} required />
+            </div>
+          </div>
           <div className="boolean-grid">
             <label className="boolean-option"><input type="checkbox" checked={isUrgent} onChange={(event) => setIsUrgent(event.target.checked)} /><span><b>緊急</b><small>今日の判断が必要</small></span></label>
             <label className="boolean-option"><input type="checkbox" checked={isImportant} onChange={(event) => setIsImportant(event.target.checked)} /><span><b>重要</b><small>目的への影響が大きい</small></span></label>
@@ -682,8 +692,8 @@ function TaskModal({ task, initialValues, onClose, onSave, onComplete }: { task?
           <div className={`priority-preview ${priority.toLowerCase()}`}><span className="priority-badge">{priority}</span><div><b>{PRIORITY_LABELS[priority]}</b><small>緊急度と重要度から自動算出</small></div></div>
           <div className="review-panel">
             <div className="review-panel-header">
-              <div><p className="eyebrow">REVIEW POINTS</p><h3>進捗確認</h3><p className="muted">土日を除き、1日8時間（8:00-16:00）で算出。15分単位に四捨五入します。</p></div>
-              <span className="count-pill">{calculateReviewSchedule(dueDate).workHours}時間</span>
+              <div><p className="eyebrow">REVIEW POINTS</p><h3>進捗確認</h3><p className="muted">10:00-19:00で算出。通常は土日を除き、プライベートは休日も含めます。15分単位に四捨五入します。</p></div>
+              <span className="count-pill">{calculateReviewSchedule({ dueDate, dueTime, category }).workHours}時間</span>
             </div>
             <label className="toggle review-manual"><input type="checkbox" checked={reviewManual} onChange={(event) => { setReviewManual(event.target.checked); if (!event.target.checked) applyCalculatedReviews(); }} /><span>手動変更（自動再計算しない）</span></label>
             <div className="review-fields">

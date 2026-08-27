@@ -18,6 +18,7 @@ test.describe("authentication boundary", () => {
     await page.getByLabel("タスク名").fill(title);
     await page.getByLabel("コメント").fill("E2Eで追加した補足");
     await page.getByLabel("期日").fill("2026-07-27");
+    await expect(page.getByLabel("時刻")).toHaveValue("19:00");
     await expect(page.getByLabel("大枠確認")).toBeVisible();
     await expect(page.getByLabel("半分目の進捗確認")).toBeVisible();
     await expect(page.getByLabel("8割確認")).toBeVisible();

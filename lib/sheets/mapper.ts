@@ -1,13 +1,14 @@
 import { calculatePriority } from "@/lib/tasks/priority";
-import { calculateReviewSchedule } from "@/lib/tasks/reviews";
+import { calculateReviewSchedule, DEFAULT_DUE_TIME } from "@/lib/tasks/reviews";
 import type { CreateTaskInput, Task } from "@/types/task";
 
 export const TASK_HEADERS = [
   "id", "title", "due_date", "is_urgent", "is_important", "priority",
   "status", "completed_at", "is_deleted", "created_at", "updated_at", "version", "comment", "plan_date", "plan_order", "category",
-  "work_hours", "review_outline_at", "review_mid_at", "review_almost_at", "review_manual",
+  "work_hours", "review_outline_at", "review_mid_at", "review_almost_at", "review_manual", "due_time",
 ] as const;
 
+export const REVIEW_TASK_HEADERS = TASK_HEADERS.slice(0, 21);
 export const CATEGORY_TASK_HEADERS = TASK_HEADERS.slice(0, 16);
 export const PLAN_TASK_HEADERS = TASK_HEADERS.slice(0, 15);
 export const COMMENT_TASK_HEADERS = TASK_HEADERS.slice(0, 13);
@@ -36,6 +37,7 @@ export function taskToRow(task: Task): string[] {
     task.reviewMidAt ?? "",
     task.reviewAlmostAt ?? "",
     String(task.reviewManual).toUpperCase(),
+    task.dueTime,
   ];
 }
 
@@ -43,7 +45,7 @@ export function rowToTask(row: string[], rowNumber?: number): Task | null {
   if (row.length === 0 || row.every((value) => value.trim() === "")) return null;
   if (row[0] === "id") return null;
   if (row.length < LEGACY_TASK_HEADERS.length) throw new Error(`INVALID_ROW:${rowNumber ?? "unknown"}`);
-  const [id, title, dueDate, urgent, important, storedPriority, status, completedAt, deleted, createdAt, updatedAt, version, comment, planDate, planOrder, category, workHours, reviewOutlineAt, reviewMidAt, reviewAlmostAt, reviewManual] = row;
+  const [id, title, dueDate, urgent, important, storedPriority, status, completedAt, deleted, createdAt, updatedAt, version, comment, planDate, planOrder, category, workHours, reviewOutlineAt, reviewMidAt, reviewAlmostAt, reviewManual, dueTime] = row;
   void storedPriority;
   if (!id || !title || !dueDate || !createdAt || !updatedAt) throw new Error(`INVALID_ROW:${rowNumber ?? "unknown"}`);
   const isUrgent = parseBoolean(urgent);
@@ -60,6 +62,7 @@ export function rowToTask(row: string[], rowNumber?: number): Task | null {
     title,
     comment: comment?.trim() ?? "",
     dueDate,
+    dueTime: parseDueTime(dueTime),
     isUrgent,
     isImportant,
     priority: calculatePriority(isUrgent, isImportant),
@@ -82,11 +85,15 @@ export function rowToTask(row: string[], rowNumber?: number): Task | null {
 
 export function inputToTask(input: CreateTaskInput, now = new Date(), id = crypto.randomUUID()): Task {
   const timestamp = now.toISOString();
+  const dueTime = input.dueTime || DEFAULT_DUE_TIME;
+  const category = input.category ?? "default";
+  const reviewInput = { dueDate: input.dueDate, dueTime, category };
   return {
     id,
     title: input.title.trim(),
     comment: input.comment?.trim() ?? "",
     dueDate: input.dueDate,
+    dueTime,
     isUrgent: input.isUrgent,
     isImportant: input.isImportant,
     priority: calculatePriority(input.isUrgent, input.isImportant),
@@ -95,20 +102,24 @@ export function inputToTask(input: CreateTaskInput, now = new Date(), id = crypt
     isDeleted: false,
     planDate: null,
     planOrder: null,
-    category: input.category ?? "default",
+    category,
     ...(input.reviewManual
       ? {
-          workHours: calculateReviewSchedule(input.dueDate, now).workHours,
+          workHours: calculateReviewSchedule(reviewInput, now).workHours,
           reviewOutlineAt: input.reviewOutlineAt ?? null,
           reviewMidAt: input.reviewMidAt ?? null,
           reviewAlmostAt: input.reviewAlmostAt ?? null,
           reviewManual: true,
         }
-      : { ...calculateReviewSchedule(input.dueDate, now), reviewManual: false }),
+      : { ...calculateReviewSchedule(reviewInput, now), reviewManual: false }),
     createdAt: timestamp,
     updatedAt: timestamp,
     version: 1,
   };
+}
+
+function parseDueTime(value: string | undefined): string {
+  return value?.trim() || DEFAULT_DUE_TIME;
 }
 
 function parseWorkHours(value: string | undefined): number {

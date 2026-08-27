@@ -15,6 +15,7 @@ describe("TaskRepository contract", () => {
     const created = await repository.create({ title: "検証する", dueDate: "2026-07-27", isUrgent: false, isImportant: true });
     expect(created.priority).toBe("P2");
     expect(created.reviewManual).toBe(false);
+    expect(created.dueTime).toBe("19:00");
     expect(created).toHaveProperty("workHours");
     const completed = await repository.update(created.id, { status: "done", version: created.version });
     expect(completed.completedAt).not.toBeNull();
