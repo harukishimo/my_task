@@ -18,7 +18,8 @@ test.describe("authentication boundary", () => {
     await page.getByLabel("タスク名").fill(title);
     await page.getByLabel("コメント").fill("E2Eで追加した補足");
     await page.getByLabel("期日").fill("2026-07-27");
-    await expect(page.getByLabel("時刻")).toHaveValue("19:00");
+    await expect(page.getByLabel("開始")).toHaveValue("09:00");
+    await expect(page.getByLabel("完了予定")).toHaveValue("19:00");
     await expect(page.getByLabel("大枠確認")).toBeVisible();
     await expect(page.getByLabel("半分目の進捗確認")).toBeVisible();
     await expect(page.getByLabel("8割確認")).toBeVisible();
@@ -113,23 +114,26 @@ test.describe("authentication boundary", () => {
     await page.getByRole("button", { name: /タスクを追加/ }).first().click();
     await page.getByLabel("タスク名").fill(taskTitle);
     await page.getByLabel("期日").fill("2026-08-20");
+    await page.getByLabel("完了予定").fill("15:00");
     await page.getByRole("button", { name: "保存する" }).click();
     await page.getByRole("link", { name: "今日の段取り" }).first().click();
     await expect(page.getByRole("heading", { name: "今日のスケジュール" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "今日の実行順" })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "未計画タスク" })).toBeVisible();
     await page.getByRole("button", { name: `${taskTitle}を時間割へ追加` }).click();
-    await expect(page.getByRole("heading", { name: "タスクを時間割へ追加" })).toBeVisible();
-    await page.getByLabel("開始").fill("09:00");
-    await page.getByLabel("終了").fill("10:00");
-    await page.getByRole("button", { name: "予定を保存" }).click();
+    await expect(page.getByRole("heading", { name: "タスクを時間割へ追加" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "予定を編集" })).toHaveCount(0);
     await expect(page.getByRole("status").filter({ hasText: "予定を追加しました。" })).toBeVisible();
-    await expect(page.locator(".schedule-block.task").filter({ hasText: taskTitle })).toBeVisible();
+    const scheduledTask = page.locator(".schedule-block.task").filter({ hasText: taskTitle });
+    await expect(scheduledTask).toBeVisible();
+    await expect(scheduledTask).toContainText("09:00–15:00");
+    await expect(page.getByRole("heading", { name: "予定を編集" })).toHaveCount(0);
     await page.getByRole("link", { name: "TODO ALL" }).first().click();
     await page.getByRole("button", { name: `${taskTitle}の詳細を開く` }).click();
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
     await expect(page.getByLabel("期日")).toHaveValue(today);
-    await expect(page.getByLabel("時刻")).toHaveValue("10:00");
+    await expect(page.getByLabel("開始")).toHaveValue("09:00");
+    await expect(page.getByLabel("完了予定")).toHaveValue("15:00");
     await page.getByRole("button", { name: "キャンセル" }).click();
     await page.getByRole("link", { name: "今日の段取り" }).first().click();
     await expect(page.getByRole("heading", { name: "今日のスケジュール" })).toBeVisible();
@@ -137,8 +141,8 @@ test.describe("authentication boundary", () => {
     await page.getByRole("button", { name: "＋ 予定を追加" }).first().click();
     await expect(page.getByRole("heading", { name: "自由予定を追加" })).toBeVisible();
     await page.getByLabel("予定名").fill("昼食");
-    await page.getByLabel("開始").fill("12:00");
-    await page.getByLabel("終了").fill("13:00");
+    await page.getByRole("textbox", { name: "開始" }).fill("12:00");
+    await page.getByRole("textbox", { name: "終了" }).fill("13:00");
     await page.getByLabel("メモ").fill("外で食べる");
     await page.getByRole("button", { name: "予定を保存" }).click();
     await expect(page.locator(".schedule-block.event").filter({ hasText: "昼食" }).first()).toBeVisible();
@@ -180,7 +184,7 @@ test.describe("authentication boundary", () => {
     await page.getByRole("link", { name: "今日の段取り" }).last().click();
     await expect(page.getByRole("heading", { name: "今日の段取り" })).toBeVisible();
     await expect(page.locator(".mobile-nav-link")).toHaveCount(6);
-    await expect(page.getByText("スマホでは「時間割へ追加」ボタンも使えます。", { exact: false })).toBeVisible();
+    await expect(page.getByText("下端をドラッグして完了予定を変えられます。", { exact: false })).toBeVisible();
   });
 
   test("collapses and expands the desktop sidebar", async ({ page }) => {
