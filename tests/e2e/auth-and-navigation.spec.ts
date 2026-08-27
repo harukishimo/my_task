@@ -105,7 +105,7 @@ test.describe("authentication boundary", () => {
   });
 
   test("combines planned tasks with free events in today's schedule", async ({ page }) => {
-    const taskTitle = `Scheduled task ${test.info().project.name} ${randomUUID()}`;
+    const taskTitle = `Sched ${test.info().project.name} ${randomUUID().slice(0, 8)}`;
     await page.goto("/login");
     await page.getByLabel("パスフレーズ").fill("test-passphrase-long");
     await page.getByRole("button", { name: "ロックを解除" }).click();
@@ -123,7 +123,16 @@ test.describe("authentication boundary", () => {
     await page.getByLabel("開始").fill("09:00");
     await page.getByLabel("終了").fill("10:00");
     await page.getByRole("button", { name: "予定を保存" }).click();
-    await expect(page.locator(".schedule-block.task").filter({ hasText: "Scheduled task" })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "予定を追加しました。" })).toBeVisible();
+    await expect(page.locator(".schedule-block.task").filter({ hasText: taskTitle })).toBeVisible();
+    await page.getByRole("link", { name: "TODO ALL" }).first().click();
+    await page.getByRole("button", { name: `${taskTitle}の詳細を開く` }).click();
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    await expect(page.getByLabel("期日")).toHaveValue(today);
+    await expect(page.getByLabel("時刻")).toHaveValue("10:00");
+    await page.getByRole("button", { name: "キャンセル" }).click();
+    await page.getByRole("link", { name: "今日の段取り" }).first().click();
+    await expect(page.getByRole("heading", { name: "今日のスケジュール" })).toBeVisible();
 
     await page.getByRole("button", { name: "＋ 予定を追加" }).first().click();
     await expect(page.getByRole("heading", { name: "自由予定を追加" })).toBeVisible();
@@ -132,8 +141,8 @@ test.describe("authentication boundary", () => {
     await page.getByLabel("終了").fill("13:00");
     await page.getByLabel("メモ").fill("外で食べる");
     await page.getByRole("button", { name: "予定を保存" }).click();
-    await expect(page.locator(".schedule-block.event").filter({ hasText: "昼食" })).toBeVisible();
-    await expect(page.locator(".schedule-block.event").filter({ hasText: "外で食べる" })).toBeVisible();
+    await expect(page.locator(".schedule-block.event").filter({ hasText: "昼食" }).first()).toBeVisible();
+    await expect(page.locator(".schedule-block.event").filter({ hasText: "外で食べる" }).first()).toBeVisible();
   });
 
   test("shows the planning matrix without an execution-order queue", async ({ page }) => {

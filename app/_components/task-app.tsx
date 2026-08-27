@@ -12,6 +12,7 @@ import { calculatePriority, PRIORITY_LABELS } from "@/lib/tasks/priority";
 import { dashboardMetrics, dueDateSort, prioritySort, priorityTasks } from "@/lib/tasks/selectors";
 import { overdueDays, todayInTokyo } from "@/lib/tasks/date";
 import { calculateReviewSchedule, DEFAULT_DUE_TIME, formatDueLabel, REVIEW_LABELS, toDateTimeLocal } from "@/lib/tasks/reviews";
+import { dueFieldsFromSchedule, shouldSyncTaskDue } from "@/lib/tasks/schedule-due";
 import LogoMark from "@/app/_components/logo-mark";
 
 type View = "dashboard" | "all" | "due" | "matrix" | "plan" | "private";
@@ -112,7 +113,7 @@ export default function TaskApp({ view }: { view: View }) {
     setNotice({ type: "success", text: task ? "タスクを更新しました。" : "タスクを追加しました。" });
   }
 
-  async function patchTask(task: Task, update: Record<string, unknown>, successText: string): Promise<boolean> {
+  async function patchTask(task: Task, update: Record<string, unknown>, successText?: string | null): Promise<boolean> {
     mutationVersion.current += 1;
     try {
       const response = await fetch(`/api/tasks/${task.id}`, {
@@ -123,7 +124,7 @@ export default function TaskApp({ view }: { view: View }) {
       const body = await response.json().catch(() => null);
       if (!response.ok) throw new Error(body?.error?.message ?? "更新できませんでした。");
       setTasks((current) => current.map((item) => item.id === task.id ? body.data : item));
-      setNotice({ type: "success", text: successText });
+      if (successText) setNotice({ type: "success", text: successText });
       return true;
     } catch (error) {
       setNotice({ type: "error", text: error instanceof Error ? error.message : "更新できませんでした。" });
@@ -177,7 +178,7 @@ export default function TaskApp({ view }: { view: View }) {
           {view === "private" && <AllView active={privateActive} completed={privateCompleted} showCompleted={showCompleted} setShowCompleted={setShowCompleted} sort={sort} setSort={setSort} onEdit={openTask} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onRestore={(task) => patchTask(task, { status: "todo" }, "タスクを復元しました。")} onDelete={deleteTask} onAdd={() => openNewTask({ ...PRIORITY_DEFAULTS.P4, category: "private" })} heading="プライベートタスク" eyebrow="PRIVATE TASKS" emptyText="プライベートタスクはありません。" />}
           {view === "due" && <DueView tasks={tasks} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onEdit={openTask} />}
           {view === "matrix" && <MatrixView tasks={active} onMove={(task, isUrgent, isImportant) => patchTask(task, { isUrgent, isImportant }, "優先度マトリクスを更新しました。")} onEdit={openTask} onAdd={(priority) => openNewTask(PRIORITY_DEFAULTS[priority])} />}
-          {view === "plan" && <PlanningView tasks={tasks} onEdit={openTask} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onAdd={() => openNewTask(PRIORITY_DEFAULTS.P4)} />}
+          {view === "plan" && <PlanningView tasks={tasks} onEdit={openTask} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onSyncDue={(task, update) => patchTask(task, update)} onAdd={() => openNewTask(PRIORITY_DEFAULTS.P4)} />}
         </>}
       </main>
       {editing && <TaskModal task={editing.id ? editing : undefined} initialValues={editing.id ? undefined : newTaskDefaults} onClose={() => setEditing(null)} onSave={saveTask} onComplete={editing.id ? (task) => patchTask(task, { status: task.status === "done" ? "todo" : "done" }, task.status === "done" ? "タスクを未完了に戻しました。" : "タスクを完了しました。") : undefined} />}
@@ -228,7 +229,7 @@ function planCollisionDetection(args: Parameters<typeof pointerWithin>[0]) {
   return pointerCollisions.length > 0 ? pointerCollisions : closestCenter(args);
 }
 
-function PlanningView({ tasks, onEdit, onComplete, onAdd }: { tasks: Task[]; onEdit: (task: Task) => void; onComplete: (task: Task) => void; onAdd: () => void }) {
+function PlanningView({ tasks, onEdit, onComplete, onSyncDue, onAdd }: { tasks: Task[]; onEdit: (task: Task) => void; onComplete: (task: Task) => void; onSyncDue: (task: Task, update: { dueDate: string; dueTime: string }) => Promise<boolean>; onAdd: () => void }) {
   const today = todayInTokyo();
   const activeTasks = tasks.filter((task) => !task.isDeleted && task.status === "todo");
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -280,6 +281,10 @@ function PlanningView({ tasks, onEdit, onComplete, onAdd }: { tasks: Task[]; onE
       const saved = body.data as ScheduleItem;
       setScheduleItems((current) => item ? current.map((entry) => entry.id === item.id ? saved : entry) : [...current, saved]);
       setScheduleEditor(null);
+      if (shouldSyncTaskDue(input.itemType, input.taskId)) {
+        const task = tasks.find((entry) => entry.id === input.taskId);
+        if (task) await onSyncDue(task, dueFieldsFromSchedule(input.scheduleDate, input.endTime));
+      }
       setScheduleMessage({ type: "success", text: item ? "予定を更新しました。" : "予定を追加しました。" });
     } catch (error) {
       setScheduleMessage({ type: "error", text: error instanceof Error ? error.message : "予定を保存できませんでした。" });
