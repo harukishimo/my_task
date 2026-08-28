@@ -17,7 +17,7 @@ export function reviewReminderTitle(label: string, taskTitle: string): string {
 }
 
 export function dueScheduleTitle(taskTitle: string): string {
-  return `完了予定：「${taskTitle}」`;
+  return `完了期日：「${taskTitle}」`;
 }
 
 export function isReviewReminder(item: Pick<ScheduleItem, "id">): boolean {
@@ -76,7 +76,6 @@ export function reviewRemindersOnDate(tasks: Task[], date: string): ScheduleItem
 export function dueScheduleOnDate(tasks: Task[], date: string): ScheduleItem[] {
   return tasks.flatMap((task) => {
     if (task.isDeleted || task.status !== "todo" || task.dueDate !== date) return [];
-    if (task.reviewOutlineAt || task.reviewMidAt || task.reviewAlmostAt) return [];
     const endTime = addMinutesToTime(task.dueTime, REVIEW_DURATION_MINUTES);
     if (!endTime) return [];
     return [{

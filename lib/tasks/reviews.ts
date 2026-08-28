@@ -3,7 +3,7 @@ import type { Task, TaskCategory, UpdateTaskInput } from "@/types/task";
 const TIME_ZONE = "Asia/Tokyo";
 const WORK_START_MINUTES = 10 * 60;
 const WORK_END_MINUTES = 19 * 60;
-const REVIEW_RATIOS = { outline: 0.1, mid: 0.3 } as const;
+const REVIEW_RATIOS = { outline: 0.1, mid: 0.3, almost: 0.5 } as const;
 
 export const DEFAULT_DUE_TIME = "19:00";
 
@@ -49,7 +49,7 @@ export function calculateReviewSchedule(input: ReviewCalculationInput, now = new
     workHours,
     reviewOutlineAt: formatReviewDateTime(roundReviewTime(addWorkMinutes(start, remainingMinutes * REVIEW_RATIOS.outline, includeWeekends), start)),
     reviewMidAt: formatReviewDateTime(roundReviewTime(addWorkMinutes(start, remainingMinutes * REVIEW_RATIOS.mid, includeWeekends), start)),
-    reviewAlmostAt: formatReviewDateTime(deadline),
+    reviewAlmostAt: formatReviewDateTime(roundReviewTime(addWorkMinutes(start, remainingMinutes * REVIEW_RATIOS.almost, includeWeekends), start)),
   };
 }
 

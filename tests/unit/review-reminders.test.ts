@@ -84,27 +84,27 @@ describe("review reminders on the daily schedule", () => {
     expect(items).toEqual([]);
   });
 
-  it("places the last review at the stored 8割 time, including the due time", () => {
+  it("places the last review at the stored 8割 time", () => {
     const items = reviewRemindersOnDate([
       task({
         id: "t1",
         title: "資料作成",
         reviewOutlineAt: "2026-08-28T11:00:00+09:00",
         reviewMidAt: "2026-08-28T12:45:00+09:00",
-        reviewAlmostAt: "2026-08-28T19:00:00+09:00",
+        reviewAlmostAt: "2026-08-28T14:30:00+09:00",
       }),
     ], "2026-08-28");
 
     expect(items.at(-1)).toMatchObject({
       title: "8割確認：「資料作成」",
-      startTime: "19:00",
-      endTime: "19:15",
+      startTime: "14:30",
+      endTime: "14:45",
     });
   });
 });
 
-describe("due time on the daily schedule without reminders", () => {
-  it("shows the task at its due time when the three reminders are off", () => {
+describe("due date on the daily schedule", () => {
+  it("shows the due date even when the three reminders are off", () => {
     const items = dueScheduleOnDate([
       task({ id: "t1", title: "資料作成", reviewManual: true }),
     ], "2026-08-28");
@@ -118,17 +118,22 @@ describe("due time on the daily schedule without reminders", () => {
       itemType: "task",
       taskId: "t1",
     });
+    expect(dueScheduleTitle("資料作成")).toBe("完了期日：「資料作成」");
   });
 
-  it("does not add a due block when review reminders already exist", () => {
+  it("still shows the due date when review reminders exist", () => {
     const items = dueScheduleOnDate([
       task({
         id: "t1",
         title: "資料作成",
-        reviewAlmostAt: "2026-08-28T19:00:00+09:00",
+        reviewAlmostAt: "2026-08-28T14:30:00+09:00",
       }),
     ], "2026-08-28");
 
-    expect(items).toEqual([]);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      title: "完了期日：「資料作成」",
+      startTime: "19:00",
+    });
   });
 });

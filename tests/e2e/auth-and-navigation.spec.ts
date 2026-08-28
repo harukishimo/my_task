@@ -216,7 +216,7 @@ test.describe("authentication boundary", () => {
     expect(created.ok()).toBeTruthy();
     await page.goto("/plan");
     await expect(page.getByRole("heading", { name: "今日のスケジュール" })).toBeVisible();
-    const dueBlock = page.locator(".schedule-block.due").filter({ hasText: `19:00　完了予定：「${title}」` });
+    const dueBlock = page.locator(".schedule-block.due").filter({ hasText: `19:00　完了期日：「${title}」` });
     await dueBlock.scrollIntoViewIfNeeded();
     await expect(dueBlock).toBeVisible();
     await expect(page.locator(".schedule-block.review").filter({ hasText: title })).toHaveCount(0);
