@@ -502,10 +502,8 @@ function ScheduleBlock({ item, title, task, startIndex, span, column, columnCoun
   const displaySpan = liveSpan ?? span;
   const columnWidth = 100 / columnCount;
   const startMinutes = toMinutes(item.startTime);
-  const endMinutes = toMinutes(item.endTime);
-  const top = isReview ? ((startMinutes - SCHEDULE_START_MINUTES) / SCHEDULE_SLOT_MINUTES) * SCHEDULE_SLOT_HEIGHT + 2 : startIndex * SCHEDULE_SLOT_HEIGHT + 3;
-  const height = isReview ? Math.max(22, ((endMinutes - startMinutes) / SCHEDULE_SLOT_MINUTES) * SCHEDULE_SLOT_HEIGHT - 4) : undefined;
-  const style = { top: `${top}px`, height: isReview ? `${height}px` : `calc(${displaySpan * SCHEDULE_SLOT_HEIGHT}px - 6px)`, left: `${column * columnWidth}%`, width: `calc(${columnWidth}% - var(--schedule-block-gap))`, transform: CSS.Transform.toString(transform), opacity: isDragging ? 0.35 : 1 };
+  const top = isReview ? ((startMinutes - SCHEDULE_START_MINUTES) / SCHEDULE_SLOT_MINUTES) * SCHEDULE_SLOT_HEIGHT + 1 : startIndex * SCHEDULE_SLOT_HEIGHT + 3;
+  const style = { top: `${top}px`, height: isReview ? "28px" : `calc(${displaySpan * SCHEDULE_SLOT_HEIGHT}px - 6px)`, left: `${column * columnWidth}%`, width: `calc(${columnWidth}% - var(--schedule-block-gap))`, transform: CSS.Transform.toString(transform), opacity: isDragging ? 0.35 : 1 };
 
   function spanFromPointer(clientY: number) {
     const origin = resizeOrigin.current;
@@ -535,8 +533,8 @@ function ScheduleBlock({ item, title, task, startIndex, span, column, columnCoun
     if (endTime !== item.endTime) onResize(endTime);
   }
 
-  return <article ref={setNodeRef} style={style} className={`schedule-block ${isTask ? "task" : "event"}${isReview ? " review" : ""}`} {...(isReview ? {} : attributes)} {...(isReview ? {} : listeners)} title={isReview ? "確認リマインド。クリックするとタスクを開けます。" : "ドラッグして時間帯を動かせます。下端で長さを変えられます。"} onClick={isReview ? onEdit : undefined}>
-    <div className="schedule-block-main"><span>{item.startTime}–{isReview ? item.endTime : minutesToTime(SCHEDULE_START_MINUTES + (startIndex + displaySpan) * SCHEDULE_SLOT_MINUTES)}</span><strong>{truncateText(title, 38)}</strong>{item.comment && <small>{truncateText(item.comment, 52)}</small>}</div>
+  return <article ref={setNodeRef} style={style} className={`schedule-block ${isTask ? "task" : "event"}${isReview ? " review" : ""}`} {...(isReview ? {} : attributes)} {...(isReview ? {} : listeners)} title={isReview ? title : "ドラッグして時間帯を動かせます。下端で長さを変えられます。"} onClick={isReview ? onEdit : undefined}>
+    <div className="schedule-block-main">{isReview ? <strong>{item.startTime}　{title}</strong> : <><span>{item.startTime}–{minutesToTime(SCHEDULE_START_MINUTES + (startIndex + displaySpan) * SCHEDULE_SLOT_MINUTES)}</span><strong>{truncateText(title, 38)}</strong>{item.comment && <small>{truncateText(item.comment, 52)}</small>}</>}</div>
     <div className="schedule-block-actions"><button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onEdit(); }} aria-label={isReview ? `${title}のタスクを開く` : `${title}の予定を編集`}>✎</button>{task && <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onComplete(task); }} aria-label={`${title}を完了にする`}>○</button>}{!isReview && <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onDelete(); }} aria-label={`${title}の予定を削除`}>×</button>}</div>
     {!isReview && <button type="button" className="schedule-block-resize" aria-label={`${title}の時間幅を変更`} disabled={disabled} onPointerDown={handleResizePointerDown} onPointerMove={handleResizePointerMove} onPointerUp={handleResizePointerUp} onPointerCancel={() => { resizeOrigin.current = null; setLiveSpan(null); }} />}
   </article>;

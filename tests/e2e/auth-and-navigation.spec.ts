@@ -164,7 +164,7 @@ test.describe("authentication boundary", () => {
     await page.getByRole("button", { name: "保存する" }).click();
     await page.getByRole("link", { name: "今日の段取り" }).first().click();
     await expect(page.getByRole("heading", { name: "今日のスケジュール" })).toBeVisible();
-    const outline = page.locator(".schedule-block.review").filter({ hasText: `大枠確認：「${title}」` });
+    const outline = page.locator(".schedule-block.review").filter({ hasText: `10:00　大枠確認：「${title}」` });
     await outline.scrollIntoViewIfNeeded();
     await expect(outline).toBeVisible();
     await expect(page.locator(".schedule-block.review").filter({ hasText: `半分目の進捗確認：「${title}」` })).toBeVisible();
