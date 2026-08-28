@@ -11,7 +11,7 @@ import type { CreateScheduleItemInput, ScheduleItem } from "@/types/schedule";
 import { calculatePriority, PRIORITY_LABELS } from "@/lib/tasks/priority";
 import { dashboardMetrics, dueDateSort, prioritySort, priorityTasks } from "@/lib/tasks/selectors";
 import { overdueDays, todayInTokyo } from "@/lib/tasks/date";
-import { calculateReviewSchedule, DEFAULT_DUE_TIME, formatDueLabel, REVIEW_LABELS, toDateTimeLocal } from "@/lib/tasks/reviews";
+import { DEFAULT_DUE_TIME, formatDueLabel } from "@/lib/tasks/reviews";
 import { dailyBlockFromStart, TASK_DAY_START_TIME } from "@/lib/tasks/schedule-due";
 import { isReviewReminder, reviewReminderTaskId, reviewRemindersOnDate } from "@/lib/tasks/review-reminders";
 import LogoMark from "@/app/_components/logo-mark";
@@ -665,28 +665,29 @@ function TaskModal({ task, initialValues, onClose, onSave, onComplete }: { task?
   const [isUrgent, setIsUrgent] = useState(task?.isUrgent ?? initialValues?.isUrgent ?? false);
   const [isImportant, setIsImportant] = useState(task?.isImportant ?? initialValues?.isImportant ?? false);
   const [category, setCategory] = useState<TaskCategory>(task?.category ?? initialValues?.category ?? "default");
-  const [reviewManual, setReviewManual] = useState(task?.reviewManual ?? false);
-  const initialSchedule = calculateReviewSchedule({ dueDate: task?.dueDate ?? todayInTokyo(), dueTime: task?.dueTime ?? DEFAULT_DUE_TIME, category: task?.category ?? initialValues?.category ?? "default" });
-  const [reviewOutlineAt, setReviewOutlineAt] = useState(() => toDateTimeLocal(task?.reviewOutlineAt ?? null) || toDateTimeLocal(initialSchedule.reviewOutlineAt));
-  const [reviewMidAt, setReviewMidAt] = useState(() => toDateTimeLocal(task?.reviewMidAt ?? null) || toDateTimeLocal(initialSchedule.reviewMidAt));
-  const [reviewAlmostAt, setReviewAlmostAt] = useState(() => toDateTimeLocal(task?.reviewAlmostAt ?? null) || toDateTimeLocal(initialSchedule.reviewAlmostAt));
+  const [showReviewReminders, setShowReviewReminders] = useState(() => !task || !task.reviewManual || Boolean(task.reviewOutlineAt || task.reviewMidAt || task.reviewAlmostAt));
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [completing, setCompleting] = useState(false);
-
-  function applyCalculatedReviews(nextDueDate = dueDate, nextDueTime = dueTime, nextCategory = category) {
-    const schedule = calculateReviewSchedule({ dueDate: nextDueDate, dueTime: nextDueTime, category: nextCategory });
-    setReviewOutlineAt(toDateTimeLocal(schedule.reviewOutlineAt));
-    setReviewMidAt(toDateTimeLocal(schedule.reviewMidAt));
-    setReviewAlmostAt(toDateTimeLocal(schedule.reviewAlmostAt));
-  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
     setSaving(true);
     try {
-      await onSave({ title, comment, dueDate, dueTime, isUrgent, isImportant, category, reviewOutlineAt, reviewMidAt, reviewAlmostAt, reviewManual }, task);
+      await onSave({
+        title,
+        comment,
+        dueDate,
+        dueTime,
+        isUrgent,
+        isImportant,
+        category,
+        reviewOutlineAt: "",
+        reviewMidAt: "",
+        reviewAlmostAt: "",
+        reviewManual: !showReviewReminders,
+      }, task);
     } catch (e) {
       setError(e instanceof Error ? e.message : "保存できませんでした。");
     } finally {
@@ -720,7 +721,7 @@ function TaskModal({ task, initialValues, onClose, onSave, onComplete }: { task?
           <label htmlFor="task-title">タスク名</label>
           <input id="task-title" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={200} required autoFocus />
           <label htmlFor="task-category">カテゴリ</label>
-          <select id="task-category" value={category} onChange={(event) => { const next = event.target.value as TaskCategory; setCategory(next); if (!reviewManual) applyCalculatedReviews(dueDate, dueTime, next); }}>
+          <select id="task-category" value={category} onChange={(event) => setCategory(event.target.value as TaskCategory)}>
             <option value="default">通常</option>
             <option value="private">プライベート</option>
           </select>
@@ -729,7 +730,7 @@ function TaskModal({ task, initialValues, onClose, onSave, onComplete }: { task?
           <div className="due-fields">
             <div>
               <label htmlFor="task-due">期日 <span className="required">必須</span></label>
-              <input id="task-due" type="date" value={dueDate} onChange={(event) => { setDueDate(event.target.value); if (!reviewManual) applyCalculatedReviews(event.target.value, dueTime, category); }} required />
+              <input id="task-due" type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} required />
             </div>
             <div>
               <label htmlFor="task-start-time">開始</label>
@@ -737,7 +738,7 @@ function TaskModal({ task, initialValues, onClose, onSave, onComplete }: { task?
             </div>
             <div>
               <label htmlFor="task-due-time">完了予定</label>
-              <input id="task-due-time" type="time" value={dueTime} onChange={(event) => { setDueTime(event.target.value); if (!reviewManual) applyCalculatedReviews(dueDate, event.target.value, category); }} required />
+              <input id="task-due-time" type="time" value={dueTime} onChange={(event) => setDueTime(event.target.value)} required />
             </div>
           </div>
           <div className="boolean-grid">
@@ -745,18 +746,7 @@ function TaskModal({ task, initialValues, onClose, onSave, onComplete }: { task?
             <label className="boolean-option"><input type="checkbox" checked={isImportant} onChange={(event) => setIsImportant(event.target.checked)} /><span><b>重要</b><small>目的への影響が大きい</small></span></label>
           </div>
           <div className={`priority-preview ${priority.toLowerCase()}`}><span className="priority-badge">{priority}</span><div><b>{PRIORITY_LABELS[priority]}</b><small>緊急度と重要度から自動算出</small></div></div>
-          <div className="review-panel">
-            <div className="review-panel-header">
-              <div><p className="eyebrow">REVIEW POINTS</p><h3>進捗確認</h3><p className="muted">10:00-19:00で算出。通常は土日を除き、プライベートは休日も含めます。15分単位に四捨五入します。</p></div>
-              <span className="count-pill">{calculateReviewSchedule({ dueDate, dueTime, category }).workHours}時間</span>
-            </div>
-            <label className="toggle review-manual"><input type="checkbox" checked={reviewManual} onChange={(event) => { setReviewManual(event.target.checked); if (!event.target.checked) applyCalculatedReviews(); }} /><span>手動変更（自動再計算しない）</span></label>
-            <div className="review-fields">
-              <div><label htmlFor="review-outline">{REVIEW_LABELS.outline}</label><input id="review-outline" type="datetime-local" value={reviewOutlineAt} onChange={(event) => { setReviewManual(true); setReviewOutlineAt(event.target.value); }} /></div>
-              <div><label htmlFor="review-mid">{REVIEW_LABELS.mid}</label><input id="review-mid" type="datetime-local" value={reviewMidAt} onChange={(event) => { setReviewManual(true); setReviewMidAt(event.target.value); }} /></div>
-              <div><label htmlFor="review-almost">{REVIEW_LABELS.almost}</label><input id="review-almost" type="datetime-local" value={reviewAlmostAt} onChange={(event) => { setReviewManual(true); setReviewAlmostAt(event.target.value); }} /></div>
-            </div>
-          </div>
+          <label className="boolean-option review-reminders-toggle"><input type="checkbox" checked={showReviewReminders} onChange={(event) => setShowReviewReminders(event.target.checked)} /><span><b>確認リマインドを出す</b><small>大枠・半分目・8割を今日の予定とWBSに出します</small></span></label>
           {error && <p className="field-error" role="alert">{error}</p>}
           <div className="modal-actions">
             {task && onComplete && <button type="button" className="complete-button" onClick={toggleComplete} disabled={saving || completing}>{completing ? "更新中…" : task.status === "done" ? "未完了に戻す" : "完了にする"}</button>}

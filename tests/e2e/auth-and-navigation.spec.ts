@@ -20,9 +20,11 @@ test.describe("authentication boundary", () => {
     await page.getByLabel("期日").fill("2026-07-27");
     await expect(page.getByLabel("開始")).toHaveValue("09:00");
     await expect(page.getByLabel("完了予定")).toHaveValue("19:00");
-    await expect(page.getByLabel("大枠確認")).toBeVisible();
-    await expect(page.getByLabel("半分目の進捗確認")).toBeVisible();
-    await expect(page.getByLabel("8割確認")).toBeVisible();
+    const editor = page.getByRole("dialog", { name: "新しいタスク" });
+    await expect(editor.getByLabel("大枠確認")).toHaveCount(0);
+    await expect(editor.getByLabel("半分目の進捗確認")).toHaveCount(0);
+    await expect(editor.getByLabel("8割確認")).toHaveCount(0);
+    await expect(editor.getByLabel("確認リマインドを出す")).toBeChecked();
     await page.getByLabel("緊急").check();
     await page.getByLabel("重要").check();
     await page.getByRole("button", { name: "保存する" }).click();
@@ -155,14 +157,21 @@ test.describe("authentication boundary", () => {
     await page.getByLabel("パスフレーズ").fill("test-passphrase-long");
     await page.getByRole("button", { name: "ロックを解除" }).click();
     await expect(page).toHaveURL(/\/dashboard$/);
-    await page.getByRole("button", { name: /タスクを追加/ }).first().click();
-    await page.getByLabel("タスク名").fill(title);
-    await page.getByLabel("期日").fill("2026-09-10");
-    await page.getByLabel("大枠確認").fill(`${today}T10:00`);
-    await page.getByLabel("半分目の進捗確認").fill(`${today}T11:00`);
-    await page.getByLabel("8割確認").fill(`${today}T12:00`);
-    await page.getByRole("button", { name: "保存する" }).click();
-    await page.getByRole("link", { name: "今日の段取り" }).first().click();
+    const created = await page.request.post("/api/tasks", {
+      data: {
+        title,
+        dueDate: "2026-09-10",
+        dueTime: "19:00",
+        isUrgent: false,
+        isImportant: false,
+        reviewManual: true,
+        reviewOutlineAt: `${today}T10:00`,
+        reviewMidAt: `${today}T11:00`,
+        reviewAlmostAt: `${today}T12:00`,
+      },
+    });
+    expect(created.ok()).toBeTruthy();
+    await page.goto("/plan");
     await expect(page.getByRole("heading", { name: "今日のスケジュール" })).toBeVisible();
     const outline = page.locator(".schedule-block.review").filter({ hasText: `10:00　大枠確認：「${title}」` });
     await outline.scrollIntoViewIfNeeded();
@@ -174,6 +183,16 @@ test.describe("authentication boundary", () => {
     await outline.click();
     await expect(page.getByRole("heading", { name: "タスクを編集" })).toBeVisible();
     await expect(page.getByLabel("タスク名")).toHaveValue(title);
+    const editor = page.getByRole("dialog", { name: "タスクを編集" });
+    await expect(editor.getByLabel("大枠確認")).toHaveCount(0);
+    await expect(editor.getByLabel("半分目の進捗確認")).toHaveCount(0);
+    await expect(editor.getByLabel("8割確認")).toHaveCount(0);
+    await expect(editor.getByLabel("確認リマインドを出す")).toBeChecked();
+    await page.getByLabel("確認リマインドを出す").uncheck();
+    await page.getByRole("button", { name: "保存する" }).click();
+    await expect(page.locator(".schedule-block.review").filter({ hasText: `大枠確認：「${title}」` })).toHaveCount(0);
+    await expect(page.locator(".schedule-block.review").filter({ hasText: `半分目の進捗確認：「${title}」` })).toHaveCount(0);
+    await expect(page.locator(".schedule-block.review").filter({ hasText: `8割確認：「${title}」` })).toHaveCount(0);
   });
 
   test("shows the planning matrix without an execution-order queue", async ({ page }) => {
