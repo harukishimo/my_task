@@ -148,6 +148,34 @@ test.describe("authentication boundary", () => {
     await expect(page.locator(".schedule-block.event").filter({ hasText: "外で食べる" }).first()).toBeVisible();
   });
 
+  test("shows today's review reminders as schedule events, not task blocks", async ({ page }) => {
+    const title = `Review ${test.info().project.name} ${randomUUID().slice(0, 8)}`;
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    await page.goto("/login");
+    await page.getByLabel("パスフレーズ").fill("test-passphrase-long");
+    await page.getByRole("button", { name: "ロックを解除" }).click();
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await page.getByRole("button", { name: /タスクを追加/ }).first().click();
+    await page.getByLabel("タスク名").fill(title);
+    await page.getByLabel("期日").fill("2026-09-10");
+    await page.getByLabel("大枠確認").fill(`${today}T10:00`);
+    await page.getByLabel("半分目の進捗確認").fill(`${today}T11:00`);
+    await page.getByLabel("8割確認").fill(`${today}T12:00`);
+    await page.getByRole("button", { name: "保存する" }).click();
+    await page.getByRole("link", { name: "今日の段取り" }).first().click();
+    await expect(page.getByRole("heading", { name: "今日のスケジュール" })).toBeVisible();
+    const outline = page.locator(".schedule-block.review").filter({ hasText: `大枠確認：「${title}」` });
+    await outline.scrollIntoViewIfNeeded();
+    await expect(outline).toBeVisible();
+    await expect(page.locator(".schedule-block.review").filter({ hasText: `半分目の進捗確認：「${title}」` })).toBeVisible();
+    await expect(page.locator(".schedule-block.review").filter({ hasText: `8割確認：「${title}」` })).toBeVisible();
+    await expect(page.locator(".schedule-block.task").filter({ hasText: title })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: `${title}を時間割へ追加` })).toBeVisible();
+    await outline.click();
+    await expect(page.getByRole("heading", { name: "タスクを編集" })).toBeVisible();
+    await expect(page.getByLabel("タスク名")).toHaveValue(title);
+  });
+
   test("shows the planning matrix without an execution-order queue", async ({ page }) => {
     const title = `Plan source ${test.info().project.name} ${randomUUID()}`;
     await page.goto("/login");

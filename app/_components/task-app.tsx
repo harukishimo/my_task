@@ -13,6 +13,7 @@ import { dashboardMetrics, dueDateSort, prioritySort, priorityTasks } from "@/li
 import { overdueDays, todayInTokyo } from "@/lib/tasks/date";
 import { calculateReviewSchedule, DEFAULT_DUE_TIME, formatDueLabel, REVIEW_LABELS, toDateTimeLocal } from "@/lib/tasks/reviews";
 import { dailyBlockFromStart, TASK_DAY_START_TIME } from "@/lib/tasks/schedule-due";
+import { isReviewReminder, reviewReminderTaskId, reviewRemindersOnDate } from "@/lib/tasks/review-reminders";
 import LogoMark from "@/app/_components/logo-mark";
 import WbsView from "@/app/_components/wbs-view";
 
@@ -267,7 +268,9 @@ function PlanningView({ tasks, onEdit, onComplete, onAdd }: { tasks: Task[]; onE
   useEffect(() => { void loadSchedule(); }, [loadSchedule]);
 
   const taskById = new Map(activeTasks.map((task) => [task.id, task]));
-  const scheduledTaskIds = new Set(scheduleItems.map((item) => item.taskId).filter((id): id is string => Boolean(id)));
+  const reminderItems = reviewRemindersOnDate(activeTasks, today);
+  const timelineItems = [...scheduleItems, ...reminderItems];
+  const scheduledTaskIds = new Set(scheduleItems.filter((item) => item.itemType === "task").map((item) => item.taskId).filter((id): id is string => Boolean(id)));
   const unscheduled = activeTasks.filter((task) => !scheduledTaskIds.has(task.id));
   const draggingTask = draggingId ? taskById.get(draggingId) : undefined;
 
@@ -313,7 +316,7 @@ function PlanningView({ tasks, onEdit, onComplete, onAdd }: { tasks: Task[]; onE
   }
 
   async function scheduleTask(task: Task, startTime = TASK_DAY_START_TIME) {
-    const existing = scheduleItems.find((item) => item.taskId === task.id);
+    const existing = scheduleItems.find((item) => item.itemType === "task" && item.taskId === task.id);
     const duration = existing ? Math.max(SCHEDULE_SLOT_MINUTES, toMinutes(existing.endTime) - toMinutes(existing.startTime)) : 60;
     const range = dailyBlockFromStart(startTime, duration);
     await saveSchedule({ scheduleDate: today, startTime: range.startTime, endTime: range.endTime, itemType: "task", taskId: task.id, title: task.title, comment: existing?.comment || task.comment }, existing);
@@ -357,7 +360,7 @@ function PlanningView({ tasks, onEdit, onComplete, onAdd }: { tasks: Task[]; onE
           onEdit={onEdit}
           onSchedule={(task) => void scheduleTask(task).catch(() => undefined)}
         />
-        <ScheduleTimeline items={scheduleItems} tasks={tasks} loading={scheduleLoading} saving={scheduleSaving} onAdd={() => setScheduleEditor({ startTime: "09:00" })} onEdit={(item) => setScheduleEditor({ item, task: item.taskId ? tasks.find((task) => task.id === item.taskId) : undefined })} onDelete={deleteSchedule} onResize={(item, endTime) => void resizeSchedule(item, endTime).catch(() => undefined)} onComplete={onComplete} />
+        <ScheduleTimeline items={timelineItems} tasks={tasks} loading={scheduleLoading} saving={scheduleSaving} onAdd={() => setScheduleEditor({ startTime: "09:00" })} onEdit={(item) => setScheduleEditor({ item, task: item.taskId ? tasks.find((task) => task.id === item.taskId) : undefined })} onOpenTask={onEdit} onDelete={deleteSchedule} onResize={(item, endTime) => void resizeSchedule(item, endTime).catch(() => undefined)} onComplete={onComplete} />
         <DragOverlay>{draggingTask ? <PlanTaskPreview task={draggingTask} /> : null}</DragOverlay>
       </DndContext>
       <p className="planning-hint">タスクを時間帯へドラッグすると、今日のスケジュールに60分で入ります。期日は変わりません。下端をドラッグして長さを変えられます。</p>
@@ -415,20 +418,21 @@ function PlanTaskPreview({ task }: { task: Task }) {
   return <div className="plan-task-card drag-preview"><span className="plan-drag-handle">⠿</span><div className="plan-task-content"><strong>{truncateText(task.title, 34)}</strong><span className="plan-task-meta"><b className={`priority-text ${task.priority.toLowerCase()}`}>{task.priority}</b>{formatDueLabel(task.dueDate, task.dueTime)}</span></div></div>;
 }
 
-function ScheduleTimeline({ items, tasks, loading, saving, onAdd, onEdit, onDelete, onResize, onComplete }: { items: ScheduleItem[]; tasks: Task[]; loading: boolean; saving: boolean; onAdd: () => void; onEdit: (item: ScheduleItem) => void; onDelete: (item: ScheduleItem) => void; onResize: (item: ScheduleItem, endTime: string) => void; onComplete: (task: Task) => void }) {
+function ScheduleTimeline({ items, tasks, loading, saving, onAdd, onEdit, onOpenTask, onDelete, onResize, onComplete }: { items: ScheduleItem[]; tasks: Task[]; loading: boolean; saving: boolean; onAdd: () => void; onEdit: (item: ScheduleItem) => void; onOpenTask: (task: Task) => void; onDelete: (item: ScheduleItem) => void; onResize: (item: ScheduleItem, endTime: string) => void; onComplete: (task: Task) => void }) {
   const taskById = new Map(tasks.map((task) => [task.id, task]));
   const layouts = getScheduleLayouts(items);
   return (
     <section className="schedule-panel" aria-labelledby="schedule-title">
-      <div className="schedule-panel-header"><div><p className="eyebrow">TIME BLOCKS</p><h2 id="schedule-title">今日のスケジュール</h2><p className="muted">タスクと自由予定を同じ時間軸で見る。</p></div><button type="button" className="secondary-button" onClick={onAdd}>＋ 予定を追加</button></div>
+      <div className="schedule-panel-header"><div><p className="eyebrow">TIME BLOCKS</p><h2 id="schedule-title">今日のスケジュール</h2><p className="muted">タスク、自由予定、確認リマインドを同じ時間軸で見る。</p></div><button type="button" className="secondary-button" onClick={onAdd}>＋ 予定を追加</button></div>
       {loading ? <div className="schedule-loading">時間割を読み込んでいます…</div> : <div className="schedule-grid-scroll" role="region" aria-label="今日の時間割。スクロールできます" tabIndex={0}>
         <div className="schedule-grid" style={{ gridTemplateRows: `repeat(${SCHEDULE_SLOTS.length}, ${SCHEDULE_SLOT_HEIGHT}px)` }}>
           {SCHEDULE_SLOTS.map((time, index) => <ScheduleSlot key={time} time={time} row={index + 1} />)}
           <div className="schedule-block-layer">
             {layouts.map(({ item, startIndex, span, column, columnCount }) => {
-              const task = item.taskId ? taskById.get(item.taskId) : undefined;
-              const displayTitle = task?.title ?? item.title;
-              return <ScheduleBlock key={item.id} item={item} title={displayTitle} task={task} startIndex={startIndex} span={span} column={column} columnCount={columnCount} disabled={saving} onEdit={() => onEdit(item)} onDelete={() => onDelete(item)} onResize={(endTime) => onResize(item, endTime)} onComplete={onComplete} />;
+              const reminderTask = reviewReminderTaskId(item.id);
+              const task = item.taskId ? taskById.get(item.taskId) : reminderTask ? taskById.get(reminderTask) : undefined;
+              const displayTitle = isReviewReminder(item) ? item.title : (task?.title ?? item.title);
+              return <ScheduleBlock key={item.id} item={item} title={displayTitle} task={isReviewReminder(item) ? undefined : task} startIndex={startIndex} span={span} column={column} columnCount={columnCount} disabled={saving} onEdit={() => (isReviewReminder(item) && task ? onOpenTask(task) : onEdit(item))} onDelete={() => onDelete(item)} onResize={(endTime) => onResize(item, endTime)} onComplete={onComplete} />;
             })}
           </div>
         </div>
@@ -491,12 +495,17 @@ function getScheduleLayouts(items: ScheduleItem[]): ScheduleLayout[] {
 
 function ScheduleBlock({ item, title, task, startIndex, span, column, columnCount, disabled, onEdit, onDelete, onResize, onComplete }: { item: ScheduleItem; title: string; task?: Task; startIndex: number; span: number; column: number; columnCount: number; disabled: boolean; onEdit: () => void; onDelete: () => void; onResize: (endTime: string) => void; onComplete: (task: Task) => void }) {
   const isTask = item.itemType === "task";
+  const isReview = isReviewReminder(item);
   const [liveSpan, setLiveSpan] = useState<number | null>(null);
   const resizeOrigin = useRef<{ y: number; span: number } | null>(null);
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `${SCHEDULE_ITEM_PREFIX}${item.id}`, disabled });
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `${SCHEDULE_ITEM_PREFIX}${item.id}`, disabled: disabled || isReview });
   const displaySpan = liveSpan ?? span;
   const columnWidth = 100 / columnCount;
-  const style = { top: `${startIndex * SCHEDULE_SLOT_HEIGHT + 3}px`, height: `calc(${displaySpan * SCHEDULE_SLOT_HEIGHT}px - 6px)`, left: `${column * columnWidth}%`, width: `calc(${columnWidth}% - var(--schedule-block-gap))`, transform: CSS.Transform.toString(transform), opacity: isDragging ? 0.35 : 1 };
+  const startMinutes = toMinutes(item.startTime);
+  const endMinutes = toMinutes(item.endTime);
+  const top = isReview ? ((startMinutes - SCHEDULE_START_MINUTES) / SCHEDULE_SLOT_MINUTES) * SCHEDULE_SLOT_HEIGHT + 2 : startIndex * SCHEDULE_SLOT_HEIGHT + 3;
+  const height = isReview ? Math.max(22, ((endMinutes - startMinutes) / SCHEDULE_SLOT_MINUTES) * SCHEDULE_SLOT_HEIGHT - 4) : undefined;
+  const style = { top: `${top}px`, height: isReview ? `${height}px` : `calc(${displaySpan * SCHEDULE_SLOT_HEIGHT}px - 6px)`, left: `${column * columnWidth}%`, width: `calc(${columnWidth}% - var(--schedule-block-gap))`, transform: CSS.Transform.toString(transform), opacity: isDragging ? 0.35 : 1 };
 
   function spanFromPointer(clientY: number) {
     const origin = resizeOrigin.current;
@@ -526,10 +535,10 @@ function ScheduleBlock({ item, title, task, startIndex, span, column, columnCoun
     if (endTime !== item.endTime) onResize(endTime);
   }
 
-  return <article ref={setNodeRef} style={style} className={`schedule-block ${isTask ? "task" : "event"}`} {...attributes} {...listeners} title="ドラッグして時間帯を動かせます。下端で長さを変えられます。">
-    <div className="schedule-block-main"><span>{item.startTime}–{minutesToTime(SCHEDULE_START_MINUTES + (startIndex + displaySpan) * SCHEDULE_SLOT_MINUTES)}</span><strong>{truncateText(title, 38)}</strong>{item.comment && <small>{truncateText(item.comment, 52)}</small>}</div>
-    <div className="schedule-block-actions"><button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onEdit(); }} aria-label={`${title}の予定を編集`}>✎</button>{task && <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onComplete(task); }} aria-label={`${title}を完了にする`}>○</button>}<button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onDelete(); }} aria-label={`${title}の予定を削除`}>×</button></div>
-    <button type="button" className="schedule-block-resize" aria-label={`${title}の時間幅を変更`} disabled={disabled} onPointerDown={handleResizePointerDown} onPointerMove={handleResizePointerMove} onPointerUp={handleResizePointerUp} onPointerCancel={() => { resizeOrigin.current = null; setLiveSpan(null); }} />
+  return <article ref={setNodeRef} style={style} className={`schedule-block ${isTask ? "task" : "event"}${isReview ? " review" : ""}`} {...(isReview ? {} : attributes)} {...(isReview ? {} : listeners)} title={isReview ? "確認リマインド。クリックするとタスクを開けます。" : "ドラッグして時間帯を動かせます。下端で長さを変えられます。"} onClick={isReview ? onEdit : undefined}>
+    <div className="schedule-block-main"><span>{item.startTime}–{isReview ? item.endTime : minutesToTime(SCHEDULE_START_MINUTES + (startIndex + displaySpan) * SCHEDULE_SLOT_MINUTES)}</span><strong>{truncateText(title, 38)}</strong>{item.comment && <small>{truncateText(item.comment, 52)}</small>}</div>
+    <div className="schedule-block-actions"><button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onEdit(); }} aria-label={isReview ? `${title}のタスクを開く` : `${title}の予定を編集`}>✎</button>{task && <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onComplete(task); }} aria-label={`${title}を完了にする`}>○</button>}{!isReview && <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onDelete(); }} aria-label={`${title}の予定を削除`}>×</button>}</div>
+    {!isReview && <button type="button" className="schedule-block-resize" aria-label={`${title}の時間幅を変更`} disabled={disabled} onPointerDown={handleResizePointerDown} onPointerMove={handleResizePointerMove} onPointerUp={handleResizePointerUp} onPointerCancel={() => { resizeOrigin.current = null; setLiveSpan(null); }} />}
   </article>;
 }
 
