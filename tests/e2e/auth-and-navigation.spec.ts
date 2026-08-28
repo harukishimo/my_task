@@ -196,6 +196,32 @@ test.describe("authentication boundary", () => {
     await expect(page.locator(".schedule-block.review").filter({ hasText: `8割確認：「${title}」` })).toHaveCount(0);
   });
 
+  test("shows the task at due time when the three reminders are off", async ({ page }) => {
+    const title = `Due ${test.info().project.name} ${randomUUID().slice(0, 8)}`;
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    await page.goto("/login");
+    await page.getByLabel("パスフレーズ").fill("test-passphrase-long");
+    await page.getByRole("button", { name: "ロックを解除" }).click();
+    await expect(page).toHaveURL(/\/dashboard$/);
+    const created = await page.request.post("/api/tasks", {
+      data: {
+        title,
+        dueDate: today,
+        dueTime: "19:00",
+        isUrgent: false,
+        isImportant: false,
+        reviewManual: true,
+      },
+    });
+    expect(created.ok()).toBeTruthy();
+    await page.goto("/plan");
+    await expect(page.getByRole("heading", { name: "今日のスケジュール" })).toBeVisible();
+    const dueBlock = page.locator(".schedule-block.due").filter({ hasText: `19:00　完了予定：「${title}」` });
+    await dueBlock.scrollIntoViewIfNeeded();
+    await expect(dueBlock).toBeVisible();
+    await expect(page.locator(".schedule-block.review").filter({ hasText: title })).toHaveCount(0);
+  });
+
   test("shows the planning matrix without an execution-order queue", async ({ page }) => {
     const title = `Plan source ${test.info().project.name} ${randomUUID()}`;
     await page.goto("/login");

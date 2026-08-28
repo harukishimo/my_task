@@ -3,6 +3,7 @@ import type { Task } from "@/types/task";
 import { REVIEW_LABELS, toDateTimeLocal } from "@/lib/tasks/reviews";
 
 export const REVIEW_REMINDER_ID_PREFIX = "review:";
+export const DUE_SCHEDULE_ID_PREFIX = "due:";
 const REVIEW_DURATION_MINUTES = 15;
 
 const REVIEW_KEYS = [
@@ -15,13 +16,34 @@ export function reviewReminderTitle(label: string, taskTitle: string): string {
   return `${label}：「${taskTitle}」`;
 }
 
+export function dueScheduleTitle(taskTitle: string): string {
+  return `完了予定：「${taskTitle}」`;
+}
+
 export function isReviewReminder(item: Pick<ScheduleItem, "id">): boolean {
   return item.id.startsWith(REVIEW_REMINDER_ID_PREFIX);
+}
+
+export function isDueSchedule(item: Pick<ScheduleItem, "id">): boolean {
+  return item.id.startsWith(DUE_SCHEDULE_ID_PREFIX);
+}
+
+export function isDerivedSchedule(item: Pick<ScheduleItem, "id">): boolean {
+  return isReviewReminder(item) || isDueSchedule(item);
 }
 
 export function reviewReminderTaskId(itemId: string): string | null {
   const match = itemId.match(/^review:([^:]+):(outline|mid|almost)$/);
   return match?.[1] ?? null;
+}
+
+export function dueScheduleTaskId(itemId: string): string | null {
+  const match = itemId.match(/^due:(.+)$/);
+  return match?.[1] ?? null;
+}
+
+export function derivedScheduleTaskId(itemId: string): string | null {
+  return reviewReminderTaskId(itemId) ?? dueScheduleTaskId(itemId);
 }
 
 export function reviewRemindersOnDate(tasks: Task[], date: string): ScheduleItem[] {
@@ -48,6 +70,30 @@ export function reviewRemindersOnDate(tasks: Task[], date: string): ScheduleItem
         version: 1,
       }];
     });
+  }).sort((a, b) => a.startTime.localeCompare(b.startTime) || a.title.localeCompare(b.title, "ja"));
+}
+
+export function dueScheduleOnDate(tasks: Task[], date: string): ScheduleItem[] {
+  return tasks.flatMap((task) => {
+    if (task.isDeleted || task.status !== "todo" || task.dueDate !== date) return [];
+    if (task.reviewOutlineAt || task.reviewMidAt || task.reviewAlmostAt) return [];
+    const endTime = addMinutesToTime(task.dueTime, REVIEW_DURATION_MINUTES);
+    if (!endTime) return [];
+    return [{
+      id: `${DUE_SCHEDULE_ID_PREFIX}${task.id}`,
+      scheduleDate: date,
+      startTime: task.dueTime,
+      endTime,
+      itemType: "task" as const,
+      taskId: task.id,
+      title: dueScheduleTitle(task.title),
+      comment: "",
+      sortOrder: 0,
+      isDeleted: false,
+      createdAt: task.createdAt,
+      updatedAt: task.updatedAt,
+      version: 1,
+    }];
   }).sort((a, b) => a.startTime.localeCompare(b.startTime) || a.title.localeCompare(b.title, "ja"));
 }
 

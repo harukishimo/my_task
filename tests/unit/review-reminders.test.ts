@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { reviewReminderTitle, reviewRemindersOnDate } from "@/lib/tasks/review-reminders";
+import { dueScheduleOnDate, dueScheduleTitle, isDueSchedule, reviewReminderTitle, reviewRemindersOnDate } from "@/lib/tasks/review-reminders";
 import type { Task } from "@/types/task";
 
 function task(overrides: Partial<Task> & Pick<Task, "id" | "title">): Task {
@@ -78,6 +78,54 @@ describe("review reminders on the daily schedule", () => {
         title: "削除",
         isDeleted: true,
         reviewOutlineAt: "2026-08-28T11:00:00+09:00",
+      }),
+    ], "2026-08-28");
+
+    expect(items).toEqual([]);
+  });
+
+  it("places the last review at the stored 8割 time, including the due time", () => {
+    const items = reviewRemindersOnDate([
+      task({
+        id: "t1",
+        title: "資料作成",
+        reviewOutlineAt: "2026-08-28T11:00:00+09:00",
+        reviewMidAt: "2026-08-28T12:45:00+09:00",
+        reviewAlmostAt: "2026-08-28T19:00:00+09:00",
+      }),
+    ], "2026-08-28");
+
+    expect(items.at(-1)).toMatchObject({
+      title: "8割確認：「資料作成」",
+      startTime: "19:00",
+      endTime: "19:15",
+    });
+  });
+});
+
+describe("due time on the daily schedule without reminders", () => {
+  it("shows the task at its due time when the three reminders are off", () => {
+    const items = dueScheduleOnDate([
+      task({ id: "t1", title: "資料作成", reviewManual: true }),
+    ], "2026-08-28");
+
+    expect(items).toHaveLength(1);
+    expect(isDueSchedule(items[0])).toBe(true);
+    expect(items[0]).toMatchObject({
+      title: dueScheduleTitle("資料作成"),
+      startTime: "19:00",
+      endTime: "19:15",
+      itemType: "task",
+      taskId: "t1",
+    });
+  });
+
+  it("does not add a due block when review reminders already exist", () => {
+    const items = dueScheduleOnDate([
+      task({
+        id: "t1",
+        title: "資料作成",
+        reviewAlmostAt: "2026-08-28T19:00:00+09:00",
       }),
     ], "2026-08-28");
 

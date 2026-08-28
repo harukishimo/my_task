@@ -10,7 +10,7 @@ describe("review schedule", () => {
     expect(schedule.workHours).toBe(9);
     expect(schedule.reviewOutlineAt).toBe("2026-08-27T11:00:00+09:00");
     expect(schedule.reviewMidAt).toBe("2026-08-27T12:45:00+09:00");
-    expect(schedule.reviewAlmostAt).toBe("2026-08-27T14:30:00+09:00");
+    expect(schedule.reviewAlmostAt).toBe("2026-08-27T19:00:00+09:00");
   });
 
   it("clamps a due time after 19:00 to the end of the workday", () => {
@@ -24,21 +24,21 @@ describe("review schedule", () => {
     expect(schedule.workHours).toBe(4);
     expect(schedule.reviewOutlineAt).toBe("2026-08-27T10:30:00+09:00");
     expect(schedule.reviewMidAt).toBe("2026-08-27T11:15:00+09:00");
-    expect(schedule.reviewAlmostAt).toBe("2026-08-27T12:00:00+09:00");
+    expect(schedule.reviewAlmostAt).toBe("2026-08-27T14:00:00+09:00");
   });
 
   it("skips Saturday and Sunday for default tasks", () => {
     const schedule = calculateReviewSchedule({ dueDate: "2026-08-31" }, fridayTen);
     expect(schedule.workHours).toBe(18);
     expect(schedule.reviewOutlineAt).toBe("2026-08-28T11:45:00+09:00");
-    expect(schedule.reviewAlmostAt).toBe("2026-08-28T19:00:00+09:00");
+    expect(schedule.reviewAlmostAt).toBe("2026-08-31T19:00:00+09:00");
   });
 
   it("includes Saturday and Sunday for private tasks", () => {
     const schedule = calculateReviewSchedule({ dueDate: "2026-08-31", category: "private" }, fridayTen);
     expect(schedule.workHours).toBe(36);
     expect(schedule.reviewOutlineAt).toBe("2026-08-28T13:30:00+09:00");
-    expect(schedule.reviewAlmostAt).toBe("2026-08-29T19:00:00+09:00");
+    expect(schedule.reviewAlmostAt).toBe("2026-08-31T19:00:00+09:00");
   });
 
   it("returns empty review times when no work hours remain", () => {

@@ -13,7 +13,7 @@ import { dashboardMetrics, dueDateSort, prioritySort, priorityTasks } from "@/li
 import { overdueDays, todayInTokyo } from "@/lib/tasks/date";
 import { calculateReviewSchedule, DEFAULT_DUE_TIME, formatDueLabel, REVIEW_LABELS, toDateTimeLocal } from "@/lib/tasks/reviews";
 import { dailyBlockFromStart, TASK_DAY_START_TIME } from "@/lib/tasks/schedule-due";
-import { isReviewReminder, reviewReminderTaskId, reviewRemindersOnDate } from "@/lib/tasks/review-reminders";
+import { derivedScheduleTaskId, dueScheduleOnDate, isDerivedSchedule, isReviewReminder, reviewRemindersOnDate } from "@/lib/tasks/review-reminders";
 import LogoMark from "@/app/_components/logo-mark";
 import WbsView from "@/app/_components/wbs-view";
 
@@ -268,9 +268,10 @@ function PlanningView({ tasks, onEdit, onComplete, onAdd }: { tasks: Task[]; onE
   useEffect(() => { void loadSchedule(); }, [loadSchedule]);
 
   const taskById = new Map(activeTasks.map((task) => [task.id, task]));
-  const reminderItems = reviewRemindersOnDate(activeTasks, today);
-  const timelineItems = [...scheduleItems, ...reminderItems];
   const scheduledTaskIds = new Set(scheduleItems.filter((item) => item.itemType === "task").map((item) => item.taskId).filter((id): id is string => Boolean(id)));
+  const reminderItems = reviewRemindersOnDate(activeTasks, today);
+  const dueItems = dueScheduleOnDate(activeTasks, today).filter((item) => item.taskId && !scheduledTaskIds.has(item.taskId));
+  const timelineItems = [...scheduleItems, ...reminderItems, ...dueItems];
   const unscheduled = activeTasks.filter((task) => !scheduledTaskIds.has(task.id));
   const draggingTask = draggingId ? taskById.get(draggingId) : undefined;
 
@@ -429,10 +430,11 @@ function ScheduleTimeline({ items, tasks, loading, saving, onAdd, onEdit, onOpen
           {SCHEDULE_SLOTS.map((time, index) => <ScheduleSlot key={time} time={time} row={index + 1} />)}
           <div className="schedule-block-layer">
             {layouts.map(({ item, startIndex, span, column, columnCount }) => {
-              const reminderTask = reviewReminderTaskId(item.id);
-              const task = item.taskId ? taskById.get(item.taskId) : reminderTask ? taskById.get(reminderTask) : undefined;
-              const displayTitle = isReviewReminder(item) ? item.title : (task?.title ?? item.title);
-              return <ScheduleBlock key={item.id} item={item} title={displayTitle} task={isReviewReminder(item) ? undefined : task} startIndex={startIndex} span={span} column={column} columnCount={columnCount} disabled={saving} onEdit={() => (isReviewReminder(item) && task ? onOpenTask(task) : onEdit(item))} onDelete={() => onDelete(item)} onResize={(endTime) => onResize(item, endTime)} onComplete={onComplete} />;
+              const derivedTask = derivedScheduleTaskId(item.id);
+              const task = item.taskId ? taskById.get(item.taskId) : derivedTask ? taskById.get(derivedTask) : undefined;
+              const displayTitle = isDerivedSchedule(item) ? item.title : (task?.title ?? item.title);
+              const derived = isDerivedSchedule(item);
+              return <ScheduleBlock key={item.id} item={item} title={displayTitle} task={isReviewReminder(item) ? undefined : task} startIndex={startIndex} span={span} column={column} columnCount={columnCount} disabled={saving} onEdit={() => (derived && task ? onOpenTask(task) : onEdit(item))} onDelete={() => onDelete(item)} onResize={(endTime) => onResize(item, endTime)} onComplete={onComplete} />;
             })}
           </div>
         </div>
@@ -495,15 +497,16 @@ function getScheduleLayouts(items: ScheduleItem[]): ScheduleLayout[] {
 
 function ScheduleBlock({ item, title, task, startIndex, span, column, columnCount, disabled, onEdit, onDelete, onResize, onComplete }: { item: ScheduleItem; title: string; task?: Task; startIndex: number; span: number; column: number; columnCount: number; disabled: boolean; onEdit: () => void; onDelete: () => void; onResize: (endTime: string) => void; onComplete: (task: Task) => void }) {
   const isTask = item.itemType === "task";
+  const derived = isDerivedSchedule(item);
   const isReview = isReviewReminder(item);
   const [liveSpan, setLiveSpan] = useState<number | null>(null);
   const resizeOrigin = useRef<{ y: number; span: number } | null>(null);
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `${SCHEDULE_ITEM_PREFIX}${item.id}`, disabled: disabled || isReview });
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `${SCHEDULE_ITEM_PREFIX}${item.id}`, disabled: disabled || derived });
   const displaySpan = liveSpan ?? span;
   const columnWidth = 100 / columnCount;
   const startMinutes = toMinutes(item.startTime);
-  const top = isReview ? ((startMinutes - SCHEDULE_START_MINUTES) / SCHEDULE_SLOT_MINUTES) * SCHEDULE_SLOT_HEIGHT + 1 : startIndex * SCHEDULE_SLOT_HEIGHT + 3;
-  const style = { top: `${top}px`, height: isReview ? "28px" : `calc(${displaySpan * SCHEDULE_SLOT_HEIGHT}px - 6px)`, left: `${column * columnWidth}%`, width: `calc(${columnWidth}% - var(--schedule-block-gap))`, transform: CSS.Transform.toString(transform), opacity: isDragging ? 0.35 : 1 };
+  const top = derived ? ((startMinutes - SCHEDULE_START_MINUTES) / SCHEDULE_SLOT_MINUTES) * SCHEDULE_SLOT_HEIGHT + 1 : startIndex * SCHEDULE_SLOT_HEIGHT + 3;
+  const style = { top: `${top}px`, height: derived ? "28px" : `calc(${displaySpan * SCHEDULE_SLOT_HEIGHT}px - 6px)`, left: `${column * columnWidth}%`, width: `calc(${columnWidth}% - var(--schedule-block-gap))`, transform: CSS.Transform.toString(transform), opacity: isDragging ? 0.35 : 1 };
 
   function spanFromPointer(clientY: number) {
     const origin = resizeOrigin.current;
@@ -533,10 +536,10 @@ function ScheduleBlock({ item, title, task, startIndex, span, column, columnCoun
     if (endTime !== item.endTime) onResize(endTime);
   }
 
-  return <article ref={setNodeRef} style={style} className={`schedule-block ${isTask ? "task" : "event"}${isReview ? " review" : ""}`} {...(isReview ? {} : attributes)} {...(isReview ? {} : listeners)} title={isReview ? title : "ドラッグして時間帯を動かせます。下端で長さを変えられます。"} onClick={isReview ? onEdit : undefined}>
-    <div className="schedule-block-main">{isReview ? <strong>{item.startTime}　{title}</strong> : <><span>{item.startTime}–{minutesToTime(SCHEDULE_START_MINUTES + (startIndex + displaySpan) * SCHEDULE_SLOT_MINUTES)}</span><strong>{truncateText(title, 38)}</strong>{item.comment && <small>{truncateText(item.comment, 52)}</small>}</>}</div>
-    <div className="schedule-block-actions"><button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onEdit(); }} aria-label={isReview ? `${title}のタスクを開く` : `${title}の予定を編集`}>✎</button>{task && <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onComplete(task); }} aria-label={`${title}を完了にする`}>○</button>}{!isReview && <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onDelete(); }} aria-label={`${title}の予定を削除`}>×</button>}</div>
-    {!isReview && <button type="button" className="schedule-block-resize" aria-label={`${title}の時間幅を変更`} disabled={disabled} onPointerDown={handleResizePointerDown} onPointerMove={handleResizePointerMove} onPointerUp={handleResizePointerUp} onPointerCancel={() => { resizeOrigin.current = null; setLiveSpan(null); }} />}
+  return <article ref={setNodeRef} style={style} className={`schedule-block ${isTask ? "task" : "event"}${isReview ? " review" : ""}${derived && !isReview ? " due" : ""}`} {...(derived ? {} : attributes)} {...(derived ? {} : listeners)} title={derived ? title : "ドラッグして時間帯を動かせます。下端で長さを変えられます。"} onClick={derived ? onEdit : undefined}>
+    <div className="schedule-block-main">{derived ? <strong>{item.startTime}　{title}</strong> : <><span>{item.startTime}–{minutesToTime(SCHEDULE_START_MINUTES + (startIndex + displaySpan) * SCHEDULE_SLOT_MINUTES)}</span><strong>{truncateText(title, 38)}</strong>{item.comment && <small>{truncateText(item.comment, 52)}</small>}</>}</div>
+    <div className="schedule-block-actions"><button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onEdit(); }} aria-label={derived ? `${title}のタスクを開く` : `${title}の予定を編集`}>✎</button>{task && <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onComplete(task); }} aria-label={`${title}を完了にする`}>○</button>}{!derived && <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onDelete(); }} aria-label={`${title}の予定を削除`}>×</button>}</div>
+    {!derived && <button type="button" className="schedule-block-resize" aria-label={`${title}の時間幅を変更`} disabled={disabled} onPointerDown={handleResizePointerDown} onPointerMove={handleResizePointerMove} onPointerUp={handleResizePointerUp} onPointerCancel={() => { resizeOrigin.current = null; setLiveSpan(null); }} />}
   </article>;
 }
 
