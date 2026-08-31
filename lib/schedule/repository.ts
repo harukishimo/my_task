@@ -5,7 +5,7 @@ import { getServerConfig } from "@/lib/server-config";
 import { getSheetsClient } from "@/lib/sheets/client";
 import { RepositoryUnavailableError, TaskConflictError, TaskNotFoundError } from "@/lib/tasks/errors";
 import type { CreateScheduleItemInput, ScheduleItem, ScheduleRepository, UpdateScheduleItemInput } from "@/types/schedule";
-import { inputToSchedule, rowToSchedule, scheduleToRow, SCHEDULE_HEADERS, toMinutes } from "./mapper";
+import { inputToSchedule, isKnownScheduleHeader, rowToSchedule, scheduleToRow, SCHEDULE_HEADERS, toMinutes } from "./mapper";
 import { InMemoryScheduleRepository } from "./in-memory-repository";
 
 export class GoogleSheetsScheduleRepository implements ScheduleRepository {
@@ -20,12 +20,12 @@ export class GoogleSheetsScheduleRepository implements ScheduleRepository {
     try {
       const response = await this.sheets.spreadsheets.values.get({
         spreadsheetId: this.config.googleSheetId,
-        range: `${this.config.googleScheduleTab}!A:M`,
+        range: `${this.config.googleScheduleTab}!A:N`,
         majorDimension: "ROWS",
       });
       const rows = response.data.values ?? [];
       const headers = rows[0] as string[] | undefined;
-      if (headers && !SCHEDULE_HEADERS.every((header, index) => headers[index] === header)) throw new RepositoryUnavailableError("Google Sheets ScheduleItems header is invalid");
+      if (headers && !isKnownScheduleHeader(headers)) throw new RepositoryUnavailableError("Google Sheets ScheduleItems header is invalid");
       const items: ScheduleItem[] = [];
       rows.slice(1).forEach((row, index) => {
         try {
@@ -59,9 +59,10 @@ export class GoogleSheetsScheduleRepository implements ScheduleRepository {
     const sortOrder = (await this.list(input.scheduleDate)).length + 1;
     const item = inputToSchedule(input, new Date(), undefined, sortOrder);
     try {
+      await this.writeHeaders();
       await this.sheets.spreadsheets.values.append({
         spreadsheetId: this.config.googleSheetId,
-        range: `${this.config.googleScheduleTab}!A:M`,
+        range: `${this.config.googleScheduleTab}!A:N`,
         valueInputOption: "USER_ENTERED",
         insertDataOption: "INSERT_ROWS",
         requestBody: { values: [scheduleToRow(item)] },
@@ -87,9 +88,10 @@ export class GoogleSheetsScheduleRepository implements ScheduleRepository {
     };
     const rowNumber = await this.findRowNumber(id);
     try {
+      await this.writeHeaders();
       await this.sheets.spreadsheets.values.update({
         spreadsheetId: this.config.googleSheetId,
-        range: `${this.config.googleScheduleTab}!A${rowNumber}:M${rowNumber}`,
+        range: `${this.config.googleScheduleTab}!A${rowNumber}:N${rowNumber}`,
         valueInputOption: "USER_ENTERED",
         requestBody: { values: [scheduleToRow(next)] },
       });
@@ -106,8 +108,17 @@ export class GoogleSheetsScheduleRepository implements ScheduleRepository {
   }
 
   private async readRows(): Promise<string[][]> {
-    const response = await this.sheets.spreadsheets.values.get({ spreadsheetId: this.config.googleSheetId, range: `${this.config.googleScheduleTab}!A:M`, majorDimension: "ROWS" });
+    const response = await this.sheets.spreadsheets.values.get({ spreadsheetId: this.config.googleSheetId, range: `${this.config.googleScheduleTab}!A:N`, majorDimension: "ROWS" });
     return (response.data.values ?? []) as string[][];
+  }
+
+  private async writeHeaders(): Promise<void> {
+    await this.sheets.spreadsheets.values.update({
+      spreadsheetId: this.config.googleSheetId,
+      range: `${this.config.googleScheduleTab}!A1:N1`,
+      valueInputOption: "RAW",
+      requestBody: { values: [SCHEDULE_HEADERS as unknown as string[]] },
+    });
   }
 
   private async findRowNumber(id: string): Promise<number> {
@@ -133,7 +144,7 @@ export async function ensureScheduleHeaders(): Promise<void> {
   const sheets = getSheetsClient();
   await sheets.spreadsheets.values.update({
     spreadsheetId: config.googleSheetId,
-    range: `${config.googleScheduleTab}!A1:M1`,
+    range: `${config.googleScheduleTab}!A1:N1`,
     valueInputOption: "RAW",
     requestBody: { values: [SCHEDULE_HEADERS as unknown as string[]] },
   });

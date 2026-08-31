@@ -1,3 +1,4 @@
+import { DEFAULT_SCHEDULE_EVENT_COLOR } from "@/lib/schedule/colors";
 import type { ScheduleItem } from "@/types/schedule";
 import type { Task } from "@/types/task";
 import { REVIEW_LABELS, toDateTimeLocal } from "@/lib/tasks/reviews";
@@ -63,6 +64,7 @@ export function reviewRemindersOnDate(tasks: Task[], date: string): ScheduleItem
         taskId: null,
         title: reviewReminderTitle(label, task.title),
         comment: "",
+        color: DEFAULT_SCHEDULE_EVENT_COLOR,
         sortOrder: 0,
         isDeleted: false,
         createdAt: task.createdAt,
@@ -87,6 +89,7 @@ export function dueScheduleOnDate(tasks: Task[], date: string): ScheduleItem[] {
       taskId: task.id,
       title: dueScheduleTitle(task.title),
       comment: "",
+      color: DEFAULT_SCHEDULE_EVENT_COLOR,
       sortOrder: 0,
       isDeleted: false,
       createdAt: task.createdAt,

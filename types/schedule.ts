@@ -1,4 +1,5 @@
 export type ScheduleItemType = "task" | "event";
+export type ScheduleEventColor = "lavender" | "sky" | "amber" | "coral" | "rose" | "slate";
 
 export type ScheduleItem = {
   id: string;
@@ -9,6 +10,7 @@ export type ScheduleItem = {
   taskId: string | null;
   title: string;
   comment: string;
+  color: ScheduleEventColor;
   sortOrder: number;
   isDeleted: boolean;
   createdAt: string;
@@ -24,6 +26,7 @@ export type CreateScheduleItemInput = {
   taskId?: string | null;
   title: string;
   comment?: string;
+  color?: ScheduleEventColor;
 };
 
 export type UpdateScheduleItemInput = Partial<CreateScheduleItemInput> & {

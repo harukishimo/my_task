@@ -7,6 +7,7 @@ import { DndContext, DragEndEvent, DragOverlay, KeyboardSensor, PointerSensor, T
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { Priority, Task, TaskCategory } from "@/types/task";
+import { DEFAULT_SCHEDULE_EVENT_COLOR, SCHEDULE_EVENT_COLOR_LABELS, SCHEDULE_EVENT_COLORS, type ScheduleEventColor } from "@/lib/schedule/colors";
 import type { CreateScheduleItemInput, ScheduleItem } from "@/types/schedule";
 import { calculatePriority, PRIORITY_LABELS } from "@/lib/tasks/priority";
 import { dashboardMetrics, dueDateSort, prioritySort, priorityTasks } from "@/lib/tasks/selectors";
@@ -320,18 +321,18 @@ function PlanningView({ tasks, onEdit, onComplete, onAdd }: { tasks: Task[]; onE
     const existing = scheduleItems.find((item) => item.itemType === "task" && item.taskId === task.id);
     const duration = existing ? Math.max(SCHEDULE_SLOT_MINUTES, toMinutes(existing.endTime) - toMinutes(existing.startTime)) : 60;
     const range = dailyBlockFromStart(startTime, duration);
-    await saveSchedule({ scheduleDate: today, startTime: range.startTime, endTime: range.endTime, itemType: "task", taskId: task.id, title: task.title, comment: existing?.comment || task.comment }, existing);
+    await saveSchedule({ scheduleDate: today, startTime: range.startTime, endTime: range.endTime, itemType: "task", taskId: task.id, title: task.title, comment: existing?.comment || task.comment, color: existing?.color }, existing);
   }
 
   async function moveSchedule(item: ScheduleItem, startTime: string) {
     const duration = Math.max(SCHEDULE_SLOT_MINUTES, toMinutes(item.endTime) - toMinutes(item.startTime));
     const range = dailyBlockFromStart(startTime, duration);
-    await saveSchedule({ scheduleDate: item.scheduleDate, startTime: range.startTime, endTime: range.endTime, itemType: item.itemType, taskId: item.taskId, title: item.title, comment: item.comment }, item);
+    await saveSchedule({ scheduleDate: item.scheduleDate, startTime: range.startTime, endTime: range.endTime, itemType: item.itemType, taskId: item.taskId, title: item.title, comment: item.comment, color: item.color }, item);
   }
 
   async function resizeSchedule(item: ScheduleItem, endTime: string) {
     if (toMinutes(endTime) <= toMinutes(item.startTime)) return;
-    await saveSchedule({ scheduleDate: item.scheduleDate, startTime: item.startTime, endTime, itemType: item.itemType, taskId: item.taskId, title: item.title, comment: item.comment }, item);
+    await saveSchedule({ scheduleDate: item.scheduleDate, startTime: item.startTime, endTime, itemType: item.itemType, taskId: item.taskId, title: item.title, comment: item.comment, color: item.color }, item);
   }
 
   function handleDragEnd({ active, over }: DragEndEvent) {
@@ -536,7 +537,8 @@ function ScheduleBlock({ item, title, task, startIndex, span, column, columnCoun
     if (endTime !== item.endTime) onResize(endTime);
   }
 
-  return <article ref={setNodeRef} style={style} className={`schedule-block ${isTask ? "task" : "event"}${isReview ? " review" : ""}${derived && !isReview ? " due" : ""}`} {...(derived ? {} : attributes)} {...(derived ? {} : listeners)} title={derived ? title : "ドラッグして時間帯を動かせます。下端で長さを変えられます。"} onClick={derived ? onEdit : undefined}>
+  const eventColor = !isTask && !derived ? ` color-${item.color}` : "";
+  return <article ref={setNodeRef} style={style} className={`schedule-block ${isTask ? "task" : "event"}${eventColor}${isReview ? " review" : ""}${derived && !isReview ? " due" : ""}`} {...(derived ? {} : attributes)} {...(derived ? {} : listeners)} title={derived ? title : "ドラッグして時間帯を動かせます。下端で長さを変えられます。"} onClick={derived ? onEdit : undefined}>
     <div className="schedule-block-main">{derived ? <strong>{item.startTime}　{title}</strong> : <><span>{item.startTime}–{minutesToTime(SCHEDULE_START_MINUTES + (startIndex + displaySpan) * SCHEDULE_SLOT_MINUTES)}</span><strong>{truncateText(title, 38)}</strong>{item.comment && <small>{truncateText(item.comment, 52)}</small>}</>}</div>
     <div className="schedule-block-actions"><button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onEdit(); }} aria-label={derived ? `${title}のタスクを開く` : `${title}の予定を編集`}>✎</button>{task && <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onComplete(task); }} aria-label={`${title}を完了にする`}>○</button>}{!derived && <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onDelete(); }} aria-label={`${title}の予定を削除`}>×</button>}</div>
     {!derived && <button type="button" className="schedule-block-resize" aria-label={`${title}の時間幅を変更`} disabled={disabled} onPointerDown={handleResizePointerDown} onPointerMove={handleResizePointerMove} onPointerUp={handleResizePointerUp} onPointerCancel={() => { resizeOrigin.current = null; setLiveSpan(null); }} />}
@@ -551,13 +553,14 @@ function ScheduleModal({ editor, onClose, onSave, onDelete, saving }: { editor: 
   const [comment, setComment] = useState(item?.comment ?? "");
   const [startTime, setStartTime] = useState(item?.startTime ?? editor.startTime ?? TASK_DAY_START_TIME);
   const [endTime, setEndTime] = useState(item?.endTime ?? addMinutesToTime(editor.startTime ?? TASK_DAY_START_TIME, 60));
+  const [color, setColor] = useState<ScheduleEventColor>(item?.color ?? DEFAULT_SCHEDULE_EVENT_COLOR);
   const [error, setError] = useState("");
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
     try {
-      await onSave({ scheduleDate: item?.scheduleDate ?? todayInTokyo(), startTime, endTime, itemType: isTask ? "task" : "event", taskId: isTask ? (item?.taskId ?? task?.id ?? null) : null, title, comment }, item);
+      await onSave({ scheduleDate: item?.scheduleDate ?? todayInTokyo(), startTime, endTime, itemType: isTask ? "task" : "event", taskId: isTask ? (item?.taskId ?? task?.id ?? null) : null, title, comment, color: isTask ? item?.color : color }, item);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "予定を保存できませんでした。");
     }
@@ -571,6 +574,18 @@ function ScheduleModal({ editor, onClose, onSave, onDelete, saving }: { editor: 
         <input id="schedule-title" aria-label="予定名" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={200} required disabled={isTask} autoFocus={!isTask} />
         {isTask && <p className="schedule-linked-task">今日のスケジュールに載せています。タスクの期日は変わりません。</p>}
         <div className="schedule-time-fields"><div><label htmlFor="schedule-start">開始</label><input id="schedule-start" type="time" value={startTime} onChange={(event) => setStartTime(event.target.value)} required /></div><div><label htmlFor="schedule-end">終了</label><input id="schedule-end" type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} required /></div></div>
+        {!isTask && <fieldset className="schedule-color-picker">
+          <legend>色</legend>
+          <div className="schedule-color-options" role="radiogroup" aria-label="予定の色">
+            {SCHEDULE_EVENT_COLORS.map((value) => (
+              <label key={value} className={`schedule-color-option${color === value ? " selected" : ""}`}>
+                <input type="radio" name="schedule-color" value={value} checked={color === value} onChange={() => setColor(value)} />
+                <span className={`schedule-color-swatch color-${value}`} aria-hidden="true" />
+                {SCHEDULE_EVENT_COLOR_LABELS[value]}
+              </label>
+            ))}
+          </div>
+        </fieldset>}
         <label htmlFor="schedule-comment">メモ</label>
         <textarea id="schedule-comment" value={comment} onChange={(event) => setComment(event.target.value)} maxLength={2000} rows={3} placeholder="会議のURL、持ち物、補足など" />
         {error && <p className="field-error" role="alert">{error}</p>}

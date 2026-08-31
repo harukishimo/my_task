@@ -36,7 +36,8 @@ describe("TaskRepository contract", () => {
 describe("ScheduleRepository contract", () => {
   it("creates, moves, lists, and removes a schedule item", async () => {
     const repository = new InMemoryScheduleRepository();
-    const created = await repository.create({ scheduleDate: "2026-08-17", startTime: "09:00", endTime: "10:00", itemType: "event", title: "会議" });
+    const created = await repository.create({ scheduleDate: "2026-08-17", startTime: "09:00", endTime: "10:00", itemType: "event", title: "会議", color: "coral" });
+    expect(created.color).toBe("coral");
     expect(await repository.list("2026-08-17")).toHaveLength(1);
     const moved = await repository.update(created.id, { startTime: "10:00", endTime: "11:00", version: created.version });
     expect(moved.startTime).toBe("10:00");

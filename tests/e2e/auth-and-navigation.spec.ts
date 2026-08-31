@@ -145,8 +145,10 @@ test.describe("authentication boundary", () => {
     await page.getByRole("textbox", { name: "開始" }).fill("12:00");
     await page.getByRole("textbox", { name: "終了" }).fill("13:00");
     await page.getByLabel("メモ").fill("外で食べる");
+    await page.getByRole("radio", { name: "アンバー" }).check();
     await page.getByRole("button", { name: "予定を保存" }).click();
-    await expect(page.locator(".schedule-block.event").filter({ hasText: "昼食" }).first()).toBeVisible();
+    const lunch = page.locator(".schedule-block.event.color-amber").filter({ hasText: "昼食" }).first();
+    await expect(lunch).toBeVisible();
     await expect(page.locator(".schedule-block.event").filter({ hasText: "外で食べる" }).first()).toBeVisible();
   });
 
