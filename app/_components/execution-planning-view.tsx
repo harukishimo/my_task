@@ -63,6 +63,9 @@ export default function ExecutionPlanningView({ tasks, onEdit, onComplete, onAdd
     setSaving(true);
     try {
       await onPlanChange(nextTasks, removedTask);
+    } catch {
+      // The parent reports the error and refreshes server state in the background.
+      // The synchronization effect below restores the confirmed queue order.
     } finally {
       setSaving(false);
     }

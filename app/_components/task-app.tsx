@@ -58,9 +58,9 @@ export default function TaskApp({ view }: { view: View }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const mutationVersion = useRef(0);
 
-  const loadTasks = useCallback(async () => {
+  const loadTasks = useCallback(async (background = false) => {
     const requestVersion = mutationVersion.current;
-    setLoading(true);
+    if (!background) setLoading(true);
     try {
       const response = await fetch("/api/tasks?includeCompleted=true", { cache: "no-store" });
       if (response.status === 401) {
@@ -73,7 +73,7 @@ export default function TaskApp({ view }: { view: View }) {
     } catch (error) {
       setNotice({ type: "error", text: error instanceof Error ? error.message : "タスクを読み込めませんでした。" });
     } finally {
-      setLoading(false);
+      if (!background) setLoading(false);
     }
   }, [router]);
 
@@ -120,21 +120,24 @@ export default function TaskApp({ view }: { view: View }) {
 
   async function persistPlan(orderedTasks: Task[], removedTask?: Task) {
     mutationVersion.current += 1;
+    const today = todayInTokyo();
     const updates = [
-      ...orderedTasks.map((task, index) => ({ task, body: { planDate: todayInTokyo(), planOrder: index + 1 } })),
+      ...orderedTasks.map((task, index) => ({ task, body: { planDate: today, planOrder: index + 1 } })),
       ...(removedTask ? [{ task: removedTask, body: { planDate: null, planOrder: null } }] : []),
-    ];
+    ].filter(({ task, body }) => task.planDate !== body.planDate || task.planOrder !== body.planOrder);
     try {
       for (const update of updates) {
         const response = await fetch(`/api/tasks/${update.task.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...update.body, version: update.task.version }) });
         const body = await response.json().catch(() => null);
         if (!response.ok) throw new Error(body?.error?.message ?? "今日の実行キューを更新できませんでした。");
+        const saved = body.data as Task;
+        // Keep the server's updated version for the next drag, without remounting the page.
+        setTasks((current) => current.map((task) => task.id === saved.id && task.version <= saved.version ? saved : task));
       }
-      await loadTasks();
       setNotice({ type: "success", text: removedTask ? "実行キューを更新しました。" : "今日の実行順を保存しました。" });
     } catch (error) {
       setNotice({ type: "error", text: error instanceof Error ? error.message : "今日の実行キューを更新できませんでした。" });
-      await loadTasks();
+      await loadTasks(true);
       throw error;
     }
   }

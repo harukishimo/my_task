@@ -127,6 +127,41 @@ test.describe("authentication boundary", () => {
     await expect(page.getByRole("status").filter({ hasText: "タスクを完了しました。" })).toBeVisible();
   });
 
+  test("saves consecutive queue changes without reloading the planning view", async ({ page }) => {
+    const prefix = `NoReload ${randomUUID().slice(0, 8)}`;
+    await page.goto("/login");
+    await page.getByLabel("パスフレーズ").fill("test-passphrase-long");
+    await page.getByRole("button", { name: "ロックを解除" }).click();
+    await expect(page).toHaveURL(/\/dashboard$/);
+    for (const name of ["A", "B"]) {
+      const response = await page.request.post("/api/tasks", { data: { title: `${prefix} ${name}`, dueDate: "2026-09-20", isUrgent: false, isImportant: false } });
+      expect(response.ok()).toBeTruthy();
+    }
+    await page.goto("/plan");
+    await expect(page.getByRole("heading", { name: "今日やるタスク" })).toBeVisible();
+    const panel = await page.locator(".execution-queue-panel").elementHandle();
+    let listRequests = 0;
+    page.on("request", (request) => {
+      if (request.method() === "GET" && new URL(request.url()).pathname === "/api/tasks") listRequests += 1;
+    });
+    for (const name of ["A", "B"]) {
+      await page.getByRole("button", { name: `${prefix} ${name}を今日の実行キューに追加` }).click();
+      await expect(page.getByRole("button", { name: `${prefix} ${name}を今日の実行キューから外す` })).toBeEnabled();
+    }
+    await page.getByRole("button", { name: `${prefix} Bを上へ移動` }).click();
+    await expect(page.getByRole("button", { name: `${prefix} Bを今日の実行キューから外す` })).toBeEnabled();
+    const titles = () => page.locator(".execution-task-card").filter({ hasText: prefix }).locator("strong");
+    await expect(titles()).toHaveText([`${prefix} B`, `${prefix} A`]);
+    expect(await panel!.evaluate((element) => element.isConnected)).toBe(true);
+    expect(listRequests).toBe(0);
+    await page.reload();
+    await expect(titles()).toHaveText([`${prefix} B`, `${prefix} A`]);
+    await page.getByRole("button", { name: `${prefix} Bを今日の実行キューから外す` }).click();
+    await expect(page.getByRole("button", { name: `${prefix} Bを今日の実行キューに追加` })).toBeEnabled();
+    await page.reload();
+    await expect(titles()).toHaveText([`${prefix} A`]);
+  });
+
   test("marks long tasks for decomposition and creates a child task", async ({ page }) => {
     const title = `Parent ${test.info().project.name} ${randomUUID().slice(0, 8)}`;
     await page.goto("/login");
