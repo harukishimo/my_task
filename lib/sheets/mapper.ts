@@ -6,6 +6,7 @@ export const TASK_HEADERS = [
   "id", "title", "due_date", "is_urgent", "is_important", "priority",
   "status", "completed_at", "is_deleted", "created_at", "updated_at", "version", "comment", "plan_date", "plan_order", "category",
   "work_hours", "review_outline_at", "review_mid_at", "review_almost_at", "review_manual", "due_time",
+  "parent_task_id", "requires_request", "is_quick_task", "estimated_workdays",
 ] as const;
 
 export const REVIEW_TASK_HEADERS = TASK_HEADERS.slice(0, 21);
@@ -38,6 +39,10 @@ export function taskToRow(task: Task): string[] {
     task.reviewAlmostAt ?? "",
     String(task.reviewManual).toUpperCase(),
     task.dueTime,
+    task.parentTaskId ?? "",
+    String(task.requiresRequest).toUpperCase(),
+    String(task.isQuickTask).toUpperCase(),
+    String(task.estimatedWorkdays),
   ];
 }
 
@@ -45,7 +50,7 @@ export function rowToTask(row: string[], rowNumber?: number): Task | null {
   if (row.length === 0 || row.every((value) => value.trim() === "")) return null;
   if (row[0] === "id") return null;
   if (row.length < LEGACY_TASK_HEADERS.length) throw new Error(`INVALID_ROW:${rowNumber ?? "unknown"}`);
-  const [id, title, dueDate, urgent, important, storedPriority, status, completedAt, deleted, createdAt, updatedAt, version, comment, planDate, planOrder, category, workHours, reviewOutlineAt, reviewMidAt, reviewAlmostAt, reviewManual, dueTime] = row;
+  const [id, title, dueDate, urgent, important, storedPriority, status, completedAt, deleted, createdAt, updatedAt, version, comment, planDate, planOrder, category, workHours, reviewOutlineAt, reviewMidAt, reviewAlmostAt, reviewManual, dueTime, parentTaskId, requiresRequest, isQuickTask, estimatedWorkdays] = row;
   void storedPriority;
   if (!id || !title || !dueDate || !createdAt || !updatedAt) throw new Error(`INVALID_ROW:${rowNumber ?? "unknown"}`);
   const isUrgent = parseBoolean(urgent);
@@ -72,6 +77,10 @@ export function rowToTask(row: string[], rowNumber?: number): Task | null {
     planDate: planDate?.trim() || null,
     planOrder: numericPlanOrder,
     category: normalizedCategory,
+    parentTaskId: parentTaskId?.trim() || null,
+    requiresRequest: parseBoolean(requiresRequest ?? ""),
+    isQuickTask: parseBoolean(isQuickTask ?? ""),
+    estimatedWorkdays: parseWorkdays(estimatedWorkdays),
     workHours: parseWorkHours(workHours),
     reviewOutlineAt: reviewOutlineAt?.trim() || null,
     reviewMidAt: reviewMidAt?.trim() || null,
@@ -103,6 +112,10 @@ export function inputToTask(input: CreateTaskInput, now = new Date(), id = crypt
     planDate: null,
     planOrder: null,
     category,
+    parentTaskId: input.parentTaskId ?? null,
+    requiresRequest: input.requiresRequest ?? false,
+    isQuickTask: input.isQuickTask ?? false,
+    estimatedWorkdays: input.estimatedWorkdays ?? 1,
     ...(input.reviewManual
       ? {
           workHours: calculateReviewSchedule(reviewInput, now).workHours,
@@ -126,6 +139,13 @@ function parseWorkHours(value: string | undefined): number {
   if (!value?.trim()) return 0;
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 0) throw new Error(`INVALID_ROW`);
+  return parsed;
+}
+
+function parseWorkdays(value: string | undefined): number {
+  if (!value?.trim()) return 1;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0.25 || parsed > 365) throw new Error(`INVALID_ROW`);
   return parsed;
 }
 

@@ -21,7 +21,7 @@ export class GoogleSheetsTaskRepository implements TaskRepository {
     try {
       const response = await this.sheets.spreadsheets.values.get({
         spreadsheetId: this.config.googleSheetId,
-        range: `${this.config.googleSheetTab}!A:V`,
+        range: `${this.config.googleSheetTab}!A:Z`,
         majorDimension: "ROWS",
       });
       const rows = response.data.values ?? [];
@@ -61,7 +61,7 @@ export class GoogleSheetsTaskRepository implements TaskRepository {
     try {
       await this.sheets.spreadsheets.values.append({
         spreadsheetId: this.config.googleSheetId,
-        range: `${this.config.googleSheetTab}!A:V`,
+        range: `${this.config.googleSheetTab}!A:Z`,
         valueInputOption: "USER_ENTERED",
         insertDataOption: "INSERT_ROWS",
         requestBody: { values: [taskToRow(task)] },
@@ -91,7 +91,7 @@ export class GoogleSheetsTaskRepository implements TaskRepository {
     try {
       await this.sheets.spreadsheets.values.update({
         spreadsheetId: this.config.googleSheetId,
-        range: `${this.config.googleSheetTab}!A${rowNumber}:V${rowNumber}`,
+        range: `${this.config.googleSheetTab}!A${rowNumber}:Z${rowNumber}`,
         valueInputOption: "USER_ENTERED",
         requestBody: { values: [taskToRow(next)] },
       });
@@ -108,7 +108,7 @@ export class GoogleSheetsTaskRepository implements TaskRepository {
   private async findRowNumber(id: string): Promise<number> {
     const response = await this.sheets.spreadsheets.values.get({
       spreadsheetId: this.config.googleSheetId,
-      range: `${this.config.googleSheetTab}!A:V`,
+      range: `${this.config.googleSheetTab}!A:Z`,
       majorDimension: "ROWS",
     });
     const rows = response.data.values ?? [];
@@ -123,7 +123,7 @@ export async function ensureTaskHeaders(): Promise<void> {
   const sheets = getSheetsClient();
   await sheets.spreadsheets.values.update({
     spreadsheetId: config.googleSheetId,
-    range: `${config.googleSheetTab}!A1:V1`,
+    range: `${config.googleSheetTab}!A1:Z1`,
     valueInputOption: "RAW",
     requestBody: { values: [TASK_HEADERS as unknown as string[]] },
   });

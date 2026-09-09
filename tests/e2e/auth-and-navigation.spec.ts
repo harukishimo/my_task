@@ -107,8 +107,8 @@ test.describe("authentication boundary", () => {
     await expect(page.getByText(normalTitle)).toHaveCount(0);
   });
 
-  test("combines planned tasks with free events in today's schedule", async ({ page }) => {
-    const taskTitle = `Sched ${test.info().project.name} ${randomUUID().slice(0, 8)}`;
+  test("moves a matrix task into the single-task execution queue", async ({ page }) => {
+    const taskTitle = `Queue ${test.info().project.name} ${randomUUID().slice(0, 8)}`;
     await page.goto("/login");
     await page.getByLabel("パスフレーズ").fill("test-passphrase-long");
     await page.getByRole("button", { name: "ロックを解除" }).click();
@@ -116,115 +116,52 @@ test.describe("authentication boundary", () => {
     await page.getByRole("button", { name: /タスクを追加/ }).first().click();
     await page.getByLabel("タスク名").fill(taskTitle);
     await page.getByLabel("期日").fill("2026-08-20");
-    await page.getByLabel("完了予定").fill("15:00");
     await page.getByRole("button", { name: "保存する" }).click();
     await page.getByRole("link", { name: "今日の段取り" }).first().click();
-    await expect(page.getByRole("heading", { name: "今日のスケジュール" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "今日の実行順" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "今日やるタスク" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "未計画タスク" })).toBeVisible();
-    await page.getByRole("button", { name: `${taskTitle}を時間割へ追加` }).click();
-    await expect(page.getByRole("heading", { name: "タスクを時間割へ追加" })).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: "予定を編集" })).toHaveCount(0);
-    await expect(page.getByRole("status").filter({ hasText: "予定を追加しました。" })).toBeVisible();
-    const scheduledTask = page.locator(".schedule-block.task").filter({ hasText: taskTitle });
-    await expect(scheduledTask).toBeVisible();
-    await expect(scheduledTask).toContainText("09:00–10:00");
-    await expect(page.getByRole("heading", { name: "予定を編集" })).toHaveCount(0);
-    await page.getByRole("link", { name: "TODO ALL" }).first().click();
-    await page.getByRole("button", { name: `${taskTitle}の詳細を開く` }).click();
-    await expect(page.getByLabel("期日")).toHaveValue("2026-08-20");
-    await expect(page.getByLabel("開始")).toHaveValue("09:00");
-    await expect(page.getByLabel("完了予定")).toHaveValue("15:00");
-    await page.getByRole("button", { name: "キャンセル" }).click();
-    await page.getByRole("link", { name: "今日の段取り" }).first().click();
-    await expect(page.getByRole("heading", { name: "今日のスケジュール" })).toBeVisible();
-
-    await page.getByRole("button", { name: "＋ 予定を追加" }).first().click();
-    await expect(page.getByRole("heading", { name: "自由予定を追加" })).toBeVisible();
-    await page.getByLabel("予定名").fill("昼食");
-    await page.getByRole("textbox", { name: "開始" }).fill("12:00");
-    await page.getByRole("textbox", { name: "終了" }).fill("13:00");
-    await page.getByLabel("メモ").fill("外で食べる");
-    await page.getByRole("radio", { name: "アンバー" }).check();
-    await page.getByRole("button", { name: "予定を保存" }).click();
-    const lunch = page.locator(".schedule-block.event.color-amber").filter({ hasText: "昼食" }).first();
-    await expect(lunch).toBeVisible();
-    await expect(page.locator(".schedule-block.event").filter({ hasText: "外で食べる" }).first()).toBeVisible();
+    await page.getByRole("button", { name: `${taskTitle}を今日の実行キューに追加` }).click();
+    await expect(page.locator(".execution-task-card").filter({ hasText: taskTitle })).toBeVisible();
+    await expect(page.getByText("今日の実行順を保存しました。", { exact: false })).toBeVisible();
+    await page.getByRole("button", { name: `${taskTitle}を完了にする` }).click();
+    await expect(page.getByRole("status").filter({ hasText: "タスクを完了しました。" })).toBeVisible();
   });
 
-  test("shows today's review reminders as schedule events, not task blocks", async ({ page }) => {
-    const title = `Review ${test.info().project.name} ${randomUUID().slice(0, 8)}`;
-    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  test("marks long tasks for decomposition and creates a child task", async ({ page }) => {
+    const title = `Parent ${test.info().project.name} ${randomUUID().slice(0, 8)}`;
     await page.goto("/login");
     await page.getByLabel("パスフレーズ").fill("test-passphrase-long");
     await page.getByRole("button", { name: "ロックを解除" }).click();
     await expect(page).toHaveURL(/\/dashboard$/);
-    const created = await page.request.post("/api/tasks", {
-      data: {
-        title,
-        dueDate: "2026-09-10",
-        dueTime: "19:00",
-        isUrgent: false,
-        isImportant: false,
-        reviewManual: true,
-        reviewOutlineAt: `${today}T10:00`,
-        reviewMidAt: `${today}T11:00`,
-        reviewAlmostAt: `${today}T12:00`,
-      },
-    });
-    expect(created.ok()).toBeTruthy();
-    await page.goto("/plan");
-    await expect(page.getByRole("heading", { name: "今日のスケジュール" })).toBeVisible();
-    const outline = page.locator(".schedule-block.review").filter({ hasText: `10:00　大枠確認：「${title}」` });
-    await outline.scrollIntoViewIfNeeded();
-    await expect(outline).toBeVisible();
-    await expect(page.locator(".schedule-block.review").filter({ hasText: `半分目の進捗確認：「${title}」` })).toBeVisible();
-    await expect(page.locator(".schedule-block.review").filter({ hasText: `8割確認：「${title}」` })).toBeVisible();
-    await expect(page.locator(".schedule-block.task").filter({ hasText: title })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: `${title}を時間割へ追加` })).toBeVisible();
-    await outline.click();
-    await expect(page.getByRole("heading", { name: "タスクを編集" })).toBeVisible();
-    await expect(page.getByLabel("タスク名")).toHaveValue(title);
-    const editor = page.getByRole("dialog", { name: "タスクを編集" });
-    await expect(editor.getByLabel("確認リマインドを出す")).toBeChecked();
-    await expect(editor.getByLabel("大枠確認")).toHaveValue(`${today}T10:00`);
-    await expect(editor.getByLabel("半分目の進捗確認")).toHaveValue(`${today}T11:00`);
-    await expect(editor.getByLabel("8割確認")).toHaveValue(`${today}T12:00`);
-    await page.getByLabel("確認リマインドを出す").uncheck();
-    await expect(editor.getByLabel("大枠確認")).toHaveCount(0);
+    await page.getByRole("button", { name: /タスクを追加/ }).first().click();
+    await page.getByLabel("タスク名").fill(title);
+    await page.getByLabel("期日").fill("2026-09-20");
+    await page.getByLabel("想定営業日数").fill("3");
     await page.getByRole("button", { name: "保存する" }).click();
-    await expect(page.locator(".schedule-block.review").filter({ hasText: `大枠確認：「${title}」` })).toHaveCount(0);
-    await expect(page.locator(".schedule-block.review").filter({ hasText: `半分目の進捗確認：「${title}」` })).toHaveCount(0);
-    await expect(page.locator(".schedule-block.review").filter({ hasText: `8割確認：「${title}」` })).toHaveCount(0);
+    await page.goto("/plan");
+    const parentCard = page.locator(".plan-task-card").filter({ hasText: title }).first();
+    await expect(parentCard.getByText("3営業日以内に分解する", { exact: false })).toBeVisible();
+    await parentCard.getByRole("button", { name: `${title}の子タスクを追加` }).click();
+    await expect(page.getByRole("heading", { name: "新しいタスク" })).toBeVisible();
+    await expect(page.getByLabel("親タスク")).toHaveValue(/.+/);
+    await page.getByLabel("タスク名").fill(`${title} - 子タスク1`);
+    await page.getByLabel("想定営業日数").fill("1");
+    await page.getByRole("button", { name: "保存する" }).click();
+    await expect(page.getByRole("button", { name: `${title} - 子タスク1の詳細を開く` })).toBeVisible();
   });
 
-  test("shows the task at due time when the three reminders are off", async ({ page }) => {
-    const title = `Due ${test.info().project.name} ${randomUUID().slice(0, 8)}`;
-    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  test("does not render the legacy time schedule on today's planning page", async ({ page }) => {
     await page.goto("/login");
     await page.getByLabel("パスフレーズ").fill("test-passphrase-long");
     await page.getByRole("button", { name: "ロックを解除" }).click();
     await expect(page).toHaveURL(/\/dashboard$/);
-    const created = await page.request.post("/api/tasks", {
-      data: {
-        title,
-        dueDate: today,
-        dueTime: "19:00",
-        isUrgent: false,
-        isImportant: false,
-        reviewManual: true,
-      },
-    });
-    expect(created.ok()).toBeTruthy();
     await page.goto("/plan");
-    await expect(page.getByRole("heading", { name: "今日のスケジュール" })).toBeVisible();
-    const dueBlock = page.locator(".schedule-block.due").filter({ hasText: `19:00　完了期日：「${title}」` });
-    await dueBlock.scrollIntoViewIfNeeded();
-    await expect(dueBlock).toBeVisible();
-    await expect(page.locator(".schedule-block.review").filter({ hasText: title })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "今日やるタスク" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "今日のスケジュール" })).toHaveCount(0);
+    await expect(page.locator(".schedule-panel")).toHaveCount(0);
   });
 
-  test("shows the planning matrix without an execution-order queue", async ({ page }) => {
+  test("shows the planning matrix and execution-order queue", async ({ page }) => {
     const title = `Plan source ${test.info().project.name} ${randomUUID()}`;
     await page.goto("/login");
     await page.getByLabel("パスフレーズ").fill("test-passphrase-long");
@@ -238,7 +175,7 @@ test.describe("authentication boundary", () => {
     await expect(page).toHaveURL(/\/plan$/);
     await expect(page.getByRole("heading", { name: "今日の段取り" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "未計画タスク" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "今日の実行順" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "今日やるタスク" })).toBeVisible();
     for (const label of ["今すぐやる", "予定する", "手早くやる", "あとで"]) {
       await expect(page.locator(".planning-matrix-panel").getByRole("heading", { name: label })).toBeVisible();
     }
@@ -326,7 +263,7 @@ test.describe("authentication boundary", () => {
     await page.getByRole("link", { name: "今日の段取り" }).last().click();
     await expect(page.getByRole("heading", { name: "今日の段取り" })).toBeVisible();
     await expect(page.locator(".mobile-nav-link")).toHaveCount(7);
-    await expect(page.getByText("今日のスケジュールに60分で入ります。", { exact: false })).toBeVisible();
+    await expect(page.getByText("左のマトリクスから今日やるタスクを右のキューへドラッグ", { exact: false })).toBeVisible();
   });
 
   test("collapses and expands the desktop sidebar", async ({ page }) => {

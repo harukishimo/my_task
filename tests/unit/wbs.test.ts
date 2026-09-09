@@ -15,6 +15,7 @@ function task(overrides: Partial<Task> & Pick<Task, "id" | "title" | "dueDate">)
     planDate: null,
     planOrder: null,
     category: "default",
+    parentTaskId: null, requiresRequest: false, isQuickTask: false, estimatedWorkdays: 1,
     workHours: 0,
     reviewOutlineAt: null,
     reviewMidAt: null,

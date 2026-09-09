@@ -17,6 +17,10 @@ export type Task = {
   planDate: string | null;
   planOrder: number | null;
   category: TaskCategory;
+  parentTaskId: string | null;
+  requiresRequest: boolean;
+  isQuickTask: boolean;
+  estimatedWorkdays: number;
   workHours: number;
   reviewOutlineAt: string | null;
   reviewMidAt: string | null;
@@ -35,6 +39,10 @@ export type CreateTaskInput = {
   isUrgent: boolean;
   isImportant: boolean;
   category?: TaskCategory;
+  parentTaskId?: string | null;
+  requiresRequest?: boolean;
+  isQuickTask?: boolean;
+  estimatedWorkdays?: number;
   reviewOutlineAt?: string | null;
   reviewMidAt?: string | null;
   reviewAlmostAt?: string | null;
@@ -47,6 +55,10 @@ export type UpdateTaskInput = Partial<CreateTaskInput> & {
   planDate?: string | null;
   planOrder?: number | null;
   category?: TaskCategory;
+  parentTaskId?: string | null;
+  requiresRequest?: boolean;
+  isQuickTask?: boolean;
+  estimatedWorkdays?: number;
   workHours?: number;
   reviewOutlineAt?: string | null;
   reviewMidAt?: string | null;

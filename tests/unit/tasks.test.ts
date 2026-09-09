@@ -7,7 +7,7 @@ import type { Task } from "@/types/task";
 const task = (overrides: Partial<Task> = {}): Task => ({
   id: crypto.randomUUID(), title: "task", comment: "", dueDate: "2026-07-27", isUrgent: false, isImportant: false,
   priority: "P4", status: "todo", completedAt: null, isDeleted: false, planDate: null, planOrder: null,
-  category: "default", dueTime: "19:00", workHours: 0, reviewOutlineAt: null, reviewMidAt: null, reviewAlmostAt: null, reviewManual: false,
+  category: "default", parentTaskId: null, requiresRequest: false, isQuickTask: false, estimatedWorkdays: 1, dueTime: "19:00", workHours: 0, reviewOutlineAt: null, reviewMidAt: null, reviewAlmostAt: null, reviewManual: false,
   createdAt: "2026-07-20T00:00:00.000Z", updatedAt: "2026-07-20T00:00:00.000Z", version: 1, ...overrides,
 });
 

@@ -17,9 +17,10 @@ import { dailyBlockFromStart, TASK_DAY_START_TIME } from "@/lib/tasks/schedule-d
 import { derivedScheduleTaskId, dueScheduleOnDate, isDerivedSchedule, isReviewReminder, reviewRemindersOnDate } from "@/lib/tasks/review-reminders";
 import LogoMark from "@/app/_components/logo-mark";
 import WbsView from "@/app/_components/wbs-view";
+import ExecutionPlanningView from "@/app/_components/execution-planning-view";
 
 type View = "dashboard" | "all" | "due" | "matrix" | "plan" | "wbs" | "private";
-type NewTaskDefaults = Pick<Task, "isUrgent" | "isImportant"> & { category?: TaskCategory };
+type NewTaskDefaults = Pick<Task, "isUrgent" | "isImportant"> & { category?: TaskCategory; parentTaskId?: string | null; requiresRequest?: boolean; isQuickTask?: boolean; estimatedWorkdays?: number };
 
 const PRIORITY_DEFAULTS: Record<Priority, NewTaskDefaults> = {
   P1: { isUrgent: true, isImportant: true },
@@ -103,7 +104,7 @@ export default function TaskApp({ view }: { view: View }) {
     setEditing(task);
   }
 
-  async function saveTask(input: { title: string; comment: string; dueDate: string; dueTime: string; isUrgent: boolean; isImportant: boolean; category: TaskCategory; reviewOutlineAt: string; reviewMidAt: string; reviewAlmostAt: string; reviewManual: boolean }, task?: Task) {
+  async function saveTask(input: { title: string; comment: string; dueDate: string; dueTime: string; isUrgent: boolean; isImportant: boolean; category: TaskCategory; parentTaskId: string | null; requiresRequest: boolean; isQuickTask: boolean; estimatedWorkdays: number; reviewOutlineAt: string; reviewMidAt: string; reviewAlmostAt: string; reviewManual: boolean }, task?: Task) {
     mutationVersion.current += 1;
     const response = await fetch(task ? `/api/tasks/${task.id}` : "/api/tasks", {
       method: task ? "PATCH" : "POST",
@@ -115,6 +116,27 @@ export default function TaskApp({ view }: { view: View }) {
     setTasks((current) => task ? current.map((item) => item.id === task.id ? body.data : item) : [body.data, ...current]);
     setEditing(null);
     setNotice({ type: "success", text: task ? "タスクを更新しました。" : "タスクを追加しました。" });
+  }
+
+  async function persistPlan(orderedTasks: Task[], removedTask?: Task) {
+    mutationVersion.current += 1;
+    const updates = [
+      ...orderedTasks.map((task, index) => ({ task, body: { planDate: todayInTokyo(), planOrder: index + 1 } })),
+      ...(removedTask ? [{ task: removedTask, body: { planDate: null, planOrder: null } }] : []),
+    ];
+    try {
+      for (const update of updates) {
+        const response = await fetch(`/api/tasks/${update.task.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...update.body, version: update.task.version }) });
+        const body = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(body?.error?.message ?? "今日の実行キューを更新できませんでした。");
+      }
+      await loadTasks();
+      setNotice({ type: "success", text: removedTask ? "実行キューを更新しました。" : "今日の実行順を保存しました。" });
+    } catch (error) {
+      setNotice({ type: "error", text: error instanceof Error ? error.message : "今日の実行キューを更新できませんでした。" });
+      await loadTasks();
+      throw error;
+    }
   }
 
   async function patchTask(task: Task, update: Record<string, unknown>, successText?: string | null): Promise<boolean> {
@@ -182,11 +204,11 @@ export default function TaskApp({ view }: { view: View }) {
           {view === "private" && <AllView active={privateActive} completed={privateCompleted} showCompleted={showCompleted} setShowCompleted={setShowCompleted} sort={sort} setSort={setSort} onEdit={openTask} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onRestore={(task) => patchTask(task, { status: "todo" }, "タスクを復元しました。")} onDelete={deleteTask} onAdd={() => openNewTask({ ...PRIORITY_DEFAULTS.P4, category: "private" })} heading="プライベートタスク" eyebrow="PRIVATE TASKS" emptyText="プライベートタスクはありません。" />}
           {view === "due" && <DueView tasks={tasks} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onEdit={openTask} />}
           {view === "matrix" && <MatrixView tasks={active} onMove={(task, isUrgent, isImportant) => patchTask(task, { isUrgent, isImportant }, "優先度マトリクスを更新しました。")} onEdit={openTask} onAdd={(priority) => openNewTask(PRIORITY_DEFAULTS[priority])} />}
-          {view === "plan" && <PlanningView tasks={tasks} onEdit={openTask} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onAdd={() => openNewTask(PRIORITY_DEFAULTS.P4)} />}
+          {view === "plan" && <ExecutionPlanningView tasks={tasks} onEdit={openTask} onComplete={(task) => patchTask(task, { status: "done" }, "タスクを完了しました。")} onAdd={() => openNewTask(PRIORITY_DEFAULTS.P4)} onAddChild={(task) => openNewTask({ isUrgent: task.isUrgent, isImportant: task.isImportant, category: task.category, parentTaskId: task.id, estimatedWorkdays: 1 })} onPlanChange={persistPlan} />}
           {view === "wbs" && <WbsView tasks={active} onEdit={openTask} onStretchDue={(task, dueDate) => { void patchTask(task, { dueDate }, "期日を更新しました。"); }} onAdd={() => openNewTask(PRIORITY_DEFAULTS.P4)} />}
         </>}
       </main>
-      {editing && <TaskModal task={editing.id ? editing : undefined} initialValues={editing.id ? undefined : newTaskDefaults} onClose={() => setEditing(null)} onSave={saveTask} onComplete={editing.id ? (task) => patchTask(task, { status: task.status === "done" ? "todo" : "done" }, task.status === "done" ? "タスクを未完了に戻しました。" : "タスクを完了しました。") : undefined} />}
+      {editing && <TaskModal task={editing.id ? editing : undefined} initialValues={editing.id ? undefined : newTaskDefaults} parentCandidates={active} onClose={() => setEditing(null)} onSave={saveTask} onComplete={editing.id ? (task) => patchTask(task, { status: task.status === "done" ? "todo" : "done" }, task.status === "done" ? "タスクを未完了に戻しました。" : "タスクを完了しました。") : undefined} />}
       <nav className="mobile-nav" aria-label="モバイルナビゲーション">{navItems.map((item) => <Link key={item.href} className={view === item.view ? "mobile-nav-link active" : "mobile-nav-link"} href={item.href}><span aria-hidden="true">{item.icon}</span><small>{item.label}</small></Link>)}</nav>
     </div>
   );
@@ -235,6 +257,8 @@ function planCollisionDetection(args: Parameters<typeof pointerWithin>[0]) {
   return pointerCollisions.length > 0 ? pointerCollisions : closestCenter(args);
 }
 
+// Kept for backwards compatibility with the legacy schedule implementation; the active /plan route uses ExecutionPlanningView.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function PlanningView({ tasks, onEdit, onComplete, onAdd }: { tasks: Task[]; onEdit: (task: Task) => void; onComplete: (task: Task) => void; onAdd: () => void }) {
   const today = todayInTokyo();
   const activeTasks = tasks.filter((task) => !task.isDeleted && task.status === "todo");
@@ -675,7 +699,7 @@ function TaskList({ tasks, onEdit, onComplete, onRestore, onDelete, showComplete
 
 function EmptyState({ text }: { text: string }) { return <div className="empty-state"><span aria-hidden="true">✦</span><p>{text}</p></div>; }
 
-function TaskModal({ task, initialValues, onClose, onSave, onComplete }: { task?: Task; initialValues?: NewTaskDefaults; onClose: () => void; onSave: (input: { title: string; comment: string; dueDate: string; dueTime: string; isUrgent: boolean; isImportant: boolean; category: TaskCategory; reviewOutlineAt: string; reviewMidAt: string; reviewAlmostAt: string; reviewManual: boolean }, task?: Task) => Promise<void>; onComplete?: (task: Task) => Promise<boolean> }) {
+function TaskModal({ task, initialValues, parentCandidates, onClose, onSave, onComplete }: { task?: Task; initialValues?: NewTaskDefaults; parentCandidates: Task[]; onClose: () => void; onSave: (input: { title: string; comment: string; dueDate: string; dueTime: string; isUrgent: boolean; isImportant: boolean; category: TaskCategory; parentTaskId: string | null; requiresRequest: boolean; isQuickTask: boolean; estimatedWorkdays: number; reviewOutlineAt: string; reviewMidAt: string; reviewAlmostAt: string; reviewManual: boolean }, task?: Task) => Promise<void>; onComplete?: (task: Task) => Promise<boolean> }) {
   const [title, setTitle] = useState(task?.title ?? "");
   const [comment, setComment] = useState(task?.comment ?? "");
   const [dueDate, setDueDate] = useState(task?.dueDate ?? todayInTokyo());
@@ -683,6 +707,10 @@ function TaskModal({ task, initialValues, onClose, onSave, onComplete }: { task?
   const [isUrgent, setIsUrgent] = useState(task?.isUrgent ?? initialValues?.isUrgent ?? false);
   const [isImportant, setIsImportant] = useState(task?.isImportant ?? initialValues?.isImportant ?? false);
   const [category, setCategory] = useState<TaskCategory>(task?.category ?? initialValues?.category ?? "default");
+  const [parentTaskId, setParentTaskId] = useState<string | null>(task?.parentTaskId ?? initialValues?.parentTaskId ?? null);
+  const [requiresRequest, setRequiresRequest] = useState(task?.requiresRequest ?? initialValues?.requiresRequest ?? false);
+  const [isQuickTask, setIsQuickTask] = useState(task?.isQuickTask ?? initialValues?.isQuickTask ?? false);
+  const [estimatedWorkdays, setEstimatedWorkdays] = useState(String(task?.estimatedWorkdays ?? initialValues?.estimatedWorkdays ?? 1));
   const [showReviewReminders, setShowReviewReminders] = useState(() => !task || !task.reviewManual || Boolean(task.reviewOutlineAt || task.reviewMidAt || task.reviewAlmostAt));
   const [reviewManual, setReviewManual] = useState(() => Boolean(task?.reviewManual && (task.reviewOutlineAt || task.reviewMidAt || task.reviewAlmostAt)));
   const initialSchedule = calculateReviewSchedule({ dueDate: task?.dueDate ?? todayInTokyo(), dueTime: task?.dueTime ?? DEFAULT_DUE_TIME, category: task?.category ?? initialValues?.category ?? "default" });
@@ -721,6 +749,10 @@ function TaskModal({ task, initialValues, onClose, onSave, onComplete }: { task?
         isUrgent,
         isImportant,
         category,
+        parentTaskId,
+        requiresRequest,
+        isQuickTask,
+        estimatedWorkdays: Number(estimatedWorkdays),
         reviewOutlineAt: showReviewReminders ? reviewOutlineAt : "",
         reviewMidAt: showReviewReminders ? reviewMidAt : "",
         reviewAlmostAt: showReviewReminders ? reviewAlmostAt : "",
@@ -765,6 +797,18 @@ function TaskModal({ task, initialValues, onClose, onSave, onComplete }: { task?
           </select>
           <label htmlFor="task-comment">コメント</label>
           <textarea id="task-comment" value={comment} onChange={(event) => setComment(event.target.value)} maxLength={2000} rows={4} placeholder="補足、次にやること、参考情報など" />
+          <label htmlFor="task-parent">親タスク</label>
+          <select id="task-parent" value={parentTaskId ?? ""} onChange={(event) => setParentTaskId(event.target.value || null)}>
+            <option value="">なし（独立したタスク）</option>
+            {parentCandidates.filter((candidate) => candidate.id !== task?.id).map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.title}</option>)}
+          </select>
+          <div className="execution-fields">
+            <label className="boolean-option"><input id="task-requires-request" type="checkbox" checked={requiresRequest} onChange={(event) => setRequiresRequest(event.target.checked)} /><span><b>依頼が必要</b><small>誰かにボールを渡す</small></span></label>
+            <label className="boolean-option"><input id="task-quick" type="checkbox" checked={isQuickTask} onChange={(event) => setIsQuickTask(event.target.checked)} /><span><b>10分以内</b><small>すぐに片づける</small></span></label>
+          </div>
+          <label htmlFor="task-estimated-workdays">想定営業日数</label>
+          <input id="task-estimated-workdays" type="number" min="0.25" max="365" step="0.25" value={estimatedWorkdays} onChange={(event) => setEstimatedWorkdays(event.target.value)} required />
+          <p className="field-help">3営業日以上なら「分解してから着手」の優先度になります。</p>
           <div className="due-fields">
             <div>
               <label htmlFor="task-due">期日 <span className="required">必須</span></label>
